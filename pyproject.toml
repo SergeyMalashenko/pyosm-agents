@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "pyosm-agents"
-version = "0.1.0"
+version = "0.2.0"
 description = "Agent-safe OpenStreetMap tools and an MCP server"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -13,7 +13,10 @@ authors = [
 ]
 dependencies = [
     "httpx>=0.27",
+    "pynspd>=1.1.13",
     "pydantic>=2.10",
+    "pyproj>=3.7",
+    "shapely>=2.0.6",
     "typing-extensions>=4.9",
 ]
 
@@ -31,6 +34,7 @@ test = [
 lint = [
     "mypy>=1.14",
     "ruff>=0.8",
+    "types-shapely>=2.0.0",
 ]
 
 [tool.hatch.build.targets.wheel]

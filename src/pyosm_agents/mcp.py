@@ -9,20 +9,25 @@ from typing import Any
 
 from .core import (
     GeocodeData,
+    LandParcelOsmAnalysisData,
     NearbySearchData,
+    OsmBlockName,
     OsmTools,
+    PolygonSearchData,
     ReverseGeocodeData,
     ToolResult,
     create_default_registry,
 )
 
 DEFAULT_INSTRUCTIONS = (
-    "Use osm_geocode to resolve a place name or address, "
-    "osm_reverse_geocode to describe coordinates, and osm_search_nearby to "
-    "find objects by exact OSM tags. The nearby tool accepts only generated, "
-    "bounded searches; arbitrary Overpass QL is not supported. Treat OSM data "
-    "as community-maintained and potentially incomplete. Preserve the "
-    "OpenStreetMap attribution included in tool metadata when presenting data."
+    "Use osm_analyze_land_parcel when the input is a cadastral number: it "
+    "resolves the parcel through NSPD and checks thematic OSM objects against "
+    "the exact parcel contour. Use osm_search_in_polygon for caller-provided "
+    "GeoJSON polygons, osm_geocode for names or addresses, "
+    "osm_reverse_geocode for coordinates, and osm_search_nearby for radial "
+    "searches. Arbitrary Overpass QL is not supported. Boundary-only contacts "
+    "are excluded from polygon results. Treat OSM data as community-maintained "
+    "and potentially incomplete. Preserve the OpenStreetMap attribution."
 )
 
 
@@ -172,6 +177,64 @@ def create_mcp_server(
             },
         )
         return ToolResult[NearbySearchData].model_validate(result.model_dump())
+
+    @server.tool()
+    async def osm_search_in_polygon(
+        geometry: dict[str, Any],
+        tags: dict[str, str | None],
+        limit: int = 100,
+        include_geometry: bool = False,
+    ) -> ToolResult[PolygonSearchData]:
+        """Find and geometrically verify OSM objects in a WGS84 contour.
+
+        Args:
+            geometry: GeoJSON Polygon or MultiPolygon in WGS84 longitude/latitude
+                order. Interior rings participate in local verification.
+            tags: One to five exact OSM tags combined with AND. Use null to match
+                any value for a key, for example ``{"building": null}``.
+            limit: Maximum number of Overpass candidates, from 1 to 500.
+            include_geometry: Include each matched OSM object's GeoJSON geometry.
+        """
+
+        result = await registry.call(
+            "osm_search_in_polygon",
+            {
+                "geometry": geometry,
+                "tags": tags,
+                "limit": limit,
+                "include_geometry": include_geometry,
+            },
+        )
+        return ToolResult[PolygonSearchData].model_validate(result.model_dump())
+
+    @server.tool()
+    async def osm_analyze_land_parcel(
+        cadastral_number: str,
+        blocks: list[OsmBlockName] | None = None,
+        limit_per_block: int = 50,
+        include_geometry: bool = False,
+    ) -> ToolResult[LandParcelOsmAnalysisData]:
+        """Analyze thematic OSM blocks against an NSPD land-parcel contour.
+
+        Args:
+            cadastral_number: Four numeric parts separated by colons, for example
+                ``52:24:0000000:2216``.
+            blocks: Any of ``buildings``, ``transport``, ``landuse``,
+                ``infrastructure``, and ``poi``. Defaults to all five blocks.
+            limit_per_block: Maximum returned objects per block, from 1 to 100.
+            include_geometry: Include matched OSM GeoJSON geometries. Keep false
+                for compact LLM responses.
+        """
+
+        arguments: dict[str, Any] = {
+            "cadastral_number": cadastral_number,
+            "limit_per_block": limit_per_block,
+            "include_geometry": include_geometry,
+        }
+        if blocks is not None:
+            arguments["blocks"] = blocks
+        result = await registry.call("osm_analyze_land_parcel", arguments)
+        return ToolResult[LandParcelOsmAnalysisData].model_validate(result.model_dump())
 
     return server
 

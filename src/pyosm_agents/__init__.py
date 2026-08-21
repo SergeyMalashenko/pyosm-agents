@@ -2,8 +2,12 @@
 
 from .core import (
     GeocodeData,
+    LandParcelOsmAnalysisData,
     NearbySearchData,
+    NspdParcelProvider,
+    OsmBlockName,
     OsmTools,
+    PolygonSearchData,
     ReverseGeocodeData,
     ToolError,
     ToolRegistry,
@@ -13,8 +17,12 @@ from .core import (
 
 __all__ = [
     "GeocodeData",
+    "LandParcelOsmAnalysisData",
     "NearbySearchData",
+    "NspdParcelProvider",
+    "OsmBlockName",
     "OsmTools",
+    "PolygonSearchData",
     "ReverseGeocodeData",
     "ToolError",
     "ToolRegistry",
@@ -22,4 +30,4 @@ __all__ = [
     "create_default_registry",
 ]
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"

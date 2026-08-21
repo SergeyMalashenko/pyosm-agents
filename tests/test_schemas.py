@@ -1,7 +1,13 @@
 import pytest
 from pydantic import ValidationError
 
-from pyosm_agents.core import GeocodeInput, NearbySearchInput, ReverseGeocodeInput
+from pyosm_agents.core import (
+    AnalyzeLandParcelInput,
+    GeocodeInput,
+    NearbySearchInput,
+    PolygonSearchInput,
+    ReverseGeocodeInput,
+)
 
 
 def test_geocode_input_normalizes_country_codes_and_text() -> None:
@@ -57,3 +63,26 @@ def test_nearby_input_rejects_excessive_radius() -> None:
             tags={"amenity": "hospital"},
             radius_m=5001,
         )
+
+
+def test_polygon_search_reuses_safe_tag_validation() -> None:
+    with pytest.raises(ValidationError):
+        PolygonSearchInput(
+            geometry={"type": "Polygon", "coordinates": []},
+            tags={"bad key": "value"},
+        )
+
+
+def test_land_parcel_input_normalizes_number_and_blocks() -> None:
+    value = AnalyzeLandParcelInput(
+        cadastral_number=" 52:24:0000000:2216 ",
+        blocks=["buildings", "buildings", "poi"],
+    )
+
+    assert value.cadastral_number == "52:24:0000000:2216"
+    assert value.blocks == ["buildings", "poi"]
+
+
+def test_land_parcel_input_rejects_invalid_number() -> None:
+    with pytest.raises(ValidationError):
+        AnalyzeLandParcelInput(cadastral_number="not-a-number")

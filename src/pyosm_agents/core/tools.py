@@ -7,15 +7,31 @@ from typing import Any
 
 from typing_extensions import Self
 
+from .blocks import OSM_BLOCK_TAG_KEYS, blocks_for_tags, tag_filters_for_blocks
 from .client import OsmClient, OsmHttpClient
 from .errors import exception_to_tool_error
+from .parcel import NspdParcelProvider, ParcelProvider
 from .schemas import (
     GeocodeData,
     GeocodingResult,
+    LandParcelOsmAnalysisData,
+    LandParcelSummary,
     NearbyFeature,
     NearbySearchData,
+    OsmBlockName,
+    OsmBlockResult,
+    OsmSpatialFeature,
+    PolygonSearchData,
     ReverseGeocodeData,
     ToolResult,
+)
+from .spatial import (
+    ParcelSpatialAnalyzer,
+    geometry_summary,
+    geometry_to_geojson,
+    overpass_geometry,
+    prepare_polygon_geometry,
+    validate_query_contour,
 )
 
 OSM_ATTRIBUTION = "© OpenStreetMap contributors"
@@ -43,6 +59,11 @@ def _optional_int(value: Any) -> int | None:
         return int(value) if value is not None else None
     except (TypeError, ValueError):
         return None
+
+
+def _geometry_bounds(geometry: Any) -> tuple[float, float, float, float]:
+    west, south, east, north = geometry.bounds
+    return float(west), float(south), float(east), float(north)
 
 
 def _normalize_nominatim_result(item: dict[str, Any]) -> GeocodingResult:
@@ -161,12 +182,94 @@ def _normalize_overpass_feature(
     )
 
 
+def _normalize_tags(item: dict[str, Any]) -> dict[str, str]:
+    raw_tags = item.get("tags")
+    return (
+        {str(key): str(value) for key, value in raw_tags.items()}
+        if isinstance(raw_tags, dict)
+        else {}
+    )
+
+
+def _normalize_spatial_feature(
+    item: dict[str, Any],
+    *,
+    analyzer: ParcelSpatialAnalyzer,
+    selected_blocks: list[OsmBlockName],
+    include_geometry: bool,
+) -> OsmSpatialFeature | None:
+    element_type = item.get("type")
+    osm_id = _optional_int(item.get("id"))
+    if element_type not in {"node", "way", "relation"} or osm_id is None:
+        return None
+    geometry = overpass_geometry(item)
+    if geometry is None or geometry.is_empty:
+        return None
+    relation = analyzer.analyze(geometry)
+    if relation.kind == "no_intersection":
+        return None
+
+    tags = _normalize_tags(item)
+    center = geometry.representative_point()
+    return OsmSpatialFeature(
+        element_type=element_type,
+        osm_id=osm_id,
+        blocks=blocks_for_tags(tags, selected_blocks),
+        name=tags.get("name") or tags.get("brand") or tags.get("operator"),
+        geometry_type=geometry.geom_type,
+        latitude=float(center.y),
+        longitude=float(center.x),
+        relation=relation,
+        tags=tags,
+        osm_url=f"https://www.openstreetmap.org/{element_type}/{osm_id}",
+        geojson=geometry_to_geojson(geometry) if include_geometry else None,
+    )
+
+
+def _spatial_features(
+    raw_features: list[dict[str, Any]],
+    *,
+    parcel_geometry: Any,
+    selected_blocks: list[OsmBlockName],
+    include_geometry: bool,
+) -> tuple[list[OsmSpatialFeature], int]:
+    analyzer = ParcelSpatialAnalyzer(parcel_geometry)
+    features: list[OsmSpatialFeature] = []
+    seen: set[tuple[str, int]] = set()
+    discarded = 0
+    for item in raw_features:
+        item_id = _optional_int(item.get("id"))
+        key = (str(item.get("type")), item_id or -1)
+        if key in seen:
+            continue
+        seen.add(key)
+        feature = _normalize_spatial_feature(
+            item,
+            analyzer=analyzer,
+            selected_blocks=selected_blocks,
+            include_geometry=include_geometry,
+        )
+        if feature is None:
+            discarded += 1
+        else:
+            features.append(feature)
+    features.sort(key=lambda value: (value.element_type, value.osm_id))
+    return features, discarded
+
+
 class OsmTools:
     """High-level operations exposed to agents and MCP clients."""
 
-    def __init__(self, client: OsmClient | None = None) -> None:
+    def __init__(
+        self,
+        client: OsmClient | None = None,
+        *,
+        parcel_provider: ParcelProvider | None = None,
+    ) -> None:
         self._client = client or OsmHttpClient()
         self._owns_client = client is None
+        self._parcel_provider = parcel_provider
+        self._owns_parcel_provider = parcel_provider is None
 
     async def __aenter__(self) -> Self:
         return self
@@ -177,6 +280,14 @@ class OsmTools:
     async def close(self) -> None:
         if self._owns_client:
             await self._client.close()
+        if self._parcel_provider is not None and self._owns_parcel_provider:
+            await self._parcel_provider.close()
+            self._parcel_provider = None
+
+    def _get_parcel_provider(self) -> ParcelProvider:
+        if self._parcel_provider is None:
+            self._parcel_provider = NspdParcelProvider()
+        return self._parcel_provider
 
     async def geocode(
         self,
@@ -291,4 +402,131 @@ class OsmTools:
             return ToolResult[NearbySearchData].failure(
                 exception_to_tool_error(exc),
                 metadata=_metadata("Overpass API"),
+            )
+
+    async def search_in_polygon(
+        self,
+        geometry: dict[str, Any],
+        tags: dict[str, str | None],
+        limit: int = 100,
+        include_geometry: bool = False,
+    ) -> ToolResult[PolygonSearchData]:
+        """Search generated Overpass candidates and verify them geometrically."""
+
+        try:
+            contour = prepare_polygon_geometry(geometry)
+            validate_query_contour(contour)
+            raw_features = await self._client.search_bbox(
+                _geometry_bounds(contour),
+                tag_filters=[tags],
+                limit=limit,
+            )
+            features, discarded = _spatial_features(
+                raw_features,
+                parcel_geometry=contour,
+                selected_blocks=[],
+                include_geometry=include_geometry,
+            )
+            return ToolResult[PolygonSearchData].success(
+                PolygonSearchData(
+                    contour=geometry_summary(contour),
+                    tags=tags,
+                    candidate_count=len(raw_features),
+                    discarded_candidate_count=discarded,
+                    returned_count=len(features),
+                    limit_reached=len(raw_features) >= limit,
+                    features=features,
+                ),
+                metadata=_metadata("Overpass API"),
+            )
+        except Exception as exc:  # noqa: BLE001 - stable tool boundary
+            return ToolResult[PolygonSearchData].failure(
+                exception_to_tool_error(exc),
+                metadata=_metadata("Overpass API"),
+            )
+
+    async def analyze_land_parcel(
+        self,
+        cadastral_number: str,
+        blocks: list[OsmBlockName] | None = None,
+        limit_per_block: int = 50,
+        include_geometry: bool = False,
+    ) -> ToolResult[LandParcelOsmAnalysisData]:
+        """Resolve an NSPD parcel and analyze thematic OSM blocks against it."""
+
+        selected_blocks: list[OsmBlockName] = blocks or [
+            "buildings",
+            "transport",
+            "landuse",
+            "infrastructure",
+            "poi",
+        ]
+        try:
+            parcel = await self._get_parcel_provider().get_parcel(cadastral_number)
+            contour = prepare_polygon_geometry(parcel.geometry)
+            validate_query_contour(contour)
+            global_limit = min(
+                500,
+                max(100, limit_per_block * len(selected_blocks) * 2),
+            )
+            raw_features = await self._client.search_bbox(
+                _geometry_bounds(contour),
+                tag_filters=tag_filters_for_blocks(selected_blocks),
+                limit=global_limit,
+            )
+            features, discarded = _spatial_features(
+                raw_features,
+                parcel_geometry=contour,
+                selected_blocks=selected_blocks,
+                include_geometry=include_geometry,
+            )
+            global_limit_reached = len(raw_features) >= global_limit
+            block_results: list[OsmBlockResult] = []
+            for block in selected_blocks:
+                block_features = [
+                    feature for feature in features if block in feature.blocks
+                ]
+                block_results.append(
+                    OsmBlockResult(
+                        block=block,
+                        tag_keys=list(OSM_BLOCK_TAG_KEYS[block]),
+                        returned_count=min(len(block_features), limit_per_block),
+                        limit_reached=(
+                            global_limit_reached
+                            or len(block_features) > limit_per_block
+                        ),
+                        features=block_features[:limit_per_block],
+                    )
+                )
+            warnings = []
+            if global_limit_reached:
+                warnings.append(
+                    "The global Overpass candidate limit was reached; block results "
+                    "may be incomplete"
+                )
+            data = LandParcelOsmAnalysisData(
+                parcel=LandParcelSummary(
+                    cadastral_number=parcel.cadastral_number,
+                    address=parcel.address,
+                    declared_area_m2=parcel.declared_area_m2,
+                    geometry=geometry_summary(contour),
+                ),
+                candidate_count=len(raw_features),
+                discarded_candidate_count=discarded,
+                global_limit_reached=global_limit_reached,
+                blocks=block_results,
+                warnings=warnings,
+            )
+            metadata = _metadata("NSPD + Overpass API")
+            metadata["sources"] = ["nspd.gov.ru", "OpenStreetMap"]
+            return ToolResult[LandParcelOsmAnalysisData].success(
+                data,
+                metadata=metadata,
+            )
+        except Exception as exc:  # noqa: BLE001 - stable tool boundary
+            metadata = _metadata("NSPD + Overpass API")
+            metadata["sources"] = ["nspd.gov.ru", "OpenStreetMap"]
+            return ToolResult[LandParcelOsmAnalysisData].failure(
+                exception_to_tool_error(exc),
+                metadata=metadata,
             )

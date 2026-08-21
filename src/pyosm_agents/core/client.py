@@ -9,7 +9,7 @@ import math
 import os
 import time
 from collections import OrderedDict
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any, Protocol
 
 import httpx
@@ -20,7 +20,7 @@ from .errors import OsmServiceError
 DEFAULT_NOMINATIM_URL = "https://nominatim.openstreetmap.org"
 DEFAULT_OVERPASS_URL = "https://overpass-api.de/api/interpreter"
 DEFAULT_USER_AGENT = (
-    "pyosm-agents/0.1 (+https://github.com/SergeyMalashenko/pyosm-agents)"
+    "pyosm-agents/0.2 (+https://github.com/SergeyMalashenko/pyosm-agents)"
 )
 
 
@@ -57,6 +57,14 @@ class OsmClient(Protocol):
         limit: int,
     ) -> list[dict[str, Any]]: ...
 
+    async def search_bbox(
+        self,
+        bounds: tuple[float, float, float, float],
+        *,
+        tag_filters: Sequence[Mapping[str, str | None]],
+        limit: int,
+    ) -> list[dict[str, Any]]: ...
+
     async def close(self) -> None: ...
 
 
@@ -84,6 +92,33 @@ def build_overpass_query(
     return f"[out:json][timeout:25];\n(\n{selectors}\n);\nout tags center qt {limit};"
 
 
+def build_overpass_bbox_query(
+    bounds: tuple[float, float, float, float],
+    *,
+    tag_filters: Sequence[Mapping[str, str | None]],
+    limit: int,
+) -> str:
+    """Build a fast bbox candidate query for subsequent exact local filtering."""
+
+    if not tag_filters:
+        raise ValueError("At least one tag filter is required")
+    west, south, east, north = bounds
+    if not (-180 <= west < east <= 180 and -90 <= south < north <= 90):
+        raise ValueError("Invalid WGS84 bounding box")
+    bbox = f"{south:.7f},{west:.7f},{north:.7f},{east:.7f}"
+    selectors: list[str] = []
+    for tag_filter in tag_filters:
+        filters = "".join(
+            f"[{json.dumps(key)}]"
+            if value is None
+            else f"[{json.dumps(key)}={json.dumps(value, ensure_ascii=False)}]"
+            for key, value in tag_filter.items()
+        )
+        selectors.append(f"  nwr({bbox}){filters};")
+    joined = "\n".join(selectors)
+    return f"[out:json][timeout:30];\n(\n{joined}\n);\nout geom qt {limit};"
+
+
 class OsmHttpClient:
     """Policy-conscious HTTP implementation for public or self-hosted APIs.
 
@@ -101,6 +136,8 @@ class OsmHttpClient:
         contact_email: str | None = None,
         timeout_s: float = 30.0,
         nominatim_min_interval_s: float = 1.0,
+        overpass_max_attempts: int = 2,
+        overpass_retry_delay_s: float = 1.0,
         cache_size: int = 512,
         http_client: httpx.AsyncClient | None = None,
     ) -> None:
@@ -110,6 +147,10 @@ class OsmHttpClient:
             raise ValueError("nominatim_min_interval_s cannot be negative")
         if cache_size < 0:
             raise ValueError("cache_size cannot be negative")
+        if not 1 <= overpass_max_attempts <= 3:
+            raise ValueError("overpass_max_attempts must be between 1 and 3")
+        if overpass_retry_delay_s < 0:
+            raise ValueError("overpass_retry_delay_s cannot be negative")
 
         self.nominatim_url = (
             nominatim_url or os.getenv("PYOSM_NOMINATIM_URL") or DEFAULT_NOMINATIM_URL
@@ -130,6 +171,8 @@ class OsmHttpClient:
         self._nominatim_lock = asyncio.Lock()
         self._last_nominatim_request = -math.inf
         self._nominatim_min_interval_s = nominatim_min_interval_s
+        self._overpass_max_attempts = overpass_max_attempts
+        self._overpass_retry_delay_s = overpass_retry_delay_s
         self._cache_size = cache_size
         self._cache: OrderedDict[str, Any] = OrderedDict()
 
@@ -226,11 +269,40 @@ class OsmHttpClient:
             tags=tags,
             limit=limit,
         )
-        response = await self._http.post(
-            self.overpass_url,
-            data={"data": query},
-            headers=self._headers,
+        return await self._overpass_post(query)
+
+    async def search_bbox(
+        self,
+        bounds: tuple[float, float, float, float],
+        *,
+        tag_filters: Sequence[Mapping[str, str | None]],
+        limit: int,
+    ) -> list[dict[str, Any]]:
+        query = build_overpass_bbox_query(
+            bounds,
+            tag_filters=tag_filters,
+            limit=limit,
         )
+        return await self._overpass_post(query)
+
+    async def _overpass_post(self, query: str) -> list[dict[str, Any]]:
+        response: httpx.Response | None = None
+        for attempt in range(self._overpass_max_attempts):
+            try:
+                response = await self._http.post(
+                    self.overpass_url, data={"data": query}, headers=self._headers
+                )
+            except httpx.TimeoutException:
+                if attempt + 1 >= self._overpass_max_attempts:
+                    raise
+                await asyncio.sleep(self._overpass_retry_delay_s)
+                continue
+            if response.status_code not in {429, 502, 503, 504}:
+                break
+            if attempt + 1 < self._overpass_max_attempts:
+                await asyncio.sleep(self._overpass_retry_delay_s)
+        if response is None:  # pragma: no cover - defensive invariant
+            raise RuntimeError("Overpass request produced no response")
         self._raise_for_status(response, service="Overpass")
         payload = self._decode_json(response, service="Overpass")
         if not isinstance(payload, dict) or not isinstance(

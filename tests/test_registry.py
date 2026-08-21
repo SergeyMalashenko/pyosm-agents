@@ -3,13 +3,15 @@ from pyosm_agents.core import OsmTools, create_default_registry
 from .fakes import FakeOsmClient
 
 
-def test_registry_contains_only_public_first_release_tools() -> None:
+def test_registry_contains_public_tools() -> None:
     registry = create_default_registry(OsmTools(FakeOsmClient()))
 
     assert registry.names() == [
         "osm_geocode",
         "osm_reverse_geocode",
         "osm_search_nearby",
+        "osm_search_in_polygon",
+        "osm_analyze_land_parcel",
     ]
 
 

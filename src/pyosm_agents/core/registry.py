@@ -11,8 +11,10 @@ from typing_extensions import Self
 
 from .errors import exception_to_tool_error
 from .schemas import (
+    AnalyzeLandParcelInput,
     GeocodeInput,
     NearbySearchInput,
+    PolygonSearchInput,
     ReverseGeocodeInput,
     ToolError,
     ToolResult,
@@ -118,6 +120,25 @@ def create_default_registry(tools: OsmTools | None = None) -> ToolRegistry:
                 ),
                 input_model=NearbySearchInput,
                 handler=service.search_nearby,
+            ),
+            ToolDefinition(
+                name="osm_search_in_polygon",
+                description=(
+                    "Find OSM objects by exact tags inside or intersecting a WGS84 "
+                    "GeoJSON polygon, then verify spatial relations locally."
+                ),
+                input_model=PolygonSearchInput,
+                handler=service.search_in_polygon,
+            ),
+            ToolDefinition(
+                name="osm_analyze_land_parcel",
+                description=(
+                    "Resolve a land parcel by cadastral number through NSPD, then "
+                    "analyze buildings, transport, land use, infrastructure, and "
+                    "POI blocks from OpenStreetMap against its exact contour."
+                ),
+                input_model=AnalyzeLandParcelInput,
+                handler=service.analyze_land_parcel,
             ),
         ],
         close_callback=service.close,

@@ -8,7 +8,7 @@ import pytest
 from pyosm_agents.core import OsmTools
 from pyosm_agents.mcp import _build_parser, create_mcp_server
 
-from .fakes import FakeOsmClient
+from .fakes import FakeOsmClient, FakeParcelProvider
 
 
 class FakeFastMCP:
@@ -25,7 +25,7 @@ class FakeFastMCP:
         return decorator
 
 
-def test_mcp_server_registers_three_tools(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_mcp_server_registers_five_tools(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("pyosm_agents.mcp._load_mcp_server_class", lambda: FakeFastMCP)
 
     server = create_mcp_server(OsmTools(FakeOsmClient()))
@@ -34,6 +34,8 @@ def test_mcp_server_registers_three_tools(monkeypatch: pytest.MonkeyPatch) -> No
         "osm_geocode",
         "osm_reverse_geocode",
         "osm_search_nearby",
+        "osm_search_in_polygon",
+        "osm_analyze_land_parcel",
     ]
     assert server.kwargs["stateless_http"] is True
     assert server.kwargs["json_response"] is True
@@ -51,6 +53,24 @@ async def test_mcp_tool_uses_structured_envelope(
     assert result.ok
     assert result.data is not None
     assert result.data.results[0].osm_id == 200
+
+
+async def test_mcp_land_parcel_tool_is_self_contained(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("pyosm_agents.mcp._load_mcp_server_class", lambda: FakeFastMCP)
+    server = create_mcp_server(
+        OsmTools(FakeOsmClient(), parcel_provider=FakeParcelProvider())
+    )
+
+    result = await server.tools["osm_analyze_land_parcel"](
+        "52:24:0000000:2216",
+        ["buildings", "transport", "poi"],
+    )
+
+    assert result.ok
+    assert result.data is not None
+    assert result.data.parcel.cadastral_number == "52:24:0000000:2216"
 
 
 def test_cli_defaults_to_stdio_and_port_8002() -> None:

@@ -1,7 +1,11 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any
+
+from shapely.geometry import Polygon
+
+from pyosm_agents.core.parcel import ParcelRecord
 
 
 class FakeOsmClient:
@@ -39,6 +43,36 @@ class FakeOsmClient:
                 "id": 301,
                 "center": {"lat": 56.33, "lon": 44.003},
                 "tags": {"amenity": "hospital", "name": "Корпус"},
+            },
+        ]
+        self.polygon_response: list[dict[str, Any]] = [
+            {
+                "type": "node",
+                "id": 400,
+                "lat": 56.3288,
+                "lon": 44.0021,
+                "tags": {"amenity": "cafe", "name": "Кафе"},
+            },
+            {
+                "type": "way",
+                "id": 401,
+                "tags": {"building": "yes", "name": "Здание"},
+                "geometry": [
+                    {"lat": 56.32875, "lon": 44.00205},
+                    {"lat": 56.32875, "lon": 44.00215},
+                    {"lat": 56.32885, "lon": 44.00215},
+                    {"lat": 56.32885, "lon": 44.00205},
+                    {"lat": 56.32875, "lon": 44.00205},
+                ],
+            },
+            {
+                "type": "way",
+                "id": 402,
+                "tags": {"highway": "service"},
+                "geometry": [
+                    {"lat": 56.3285, "lon": 44.0015},
+                    {"lat": 56.3295, "lon": 44.0025},
+                ],
             },
         ]
 
@@ -110,6 +144,52 @@ class FakeOsmClient:
             )
         )
         return self.nearby_response
+
+    async def search_bbox(
+        self,
+        bounds: tuple[float, float, float, float],
+        *,
+        tag_filters: Sequence[Mapping[str, str | None]],
+        limit: int,
+    ) -> list[dict[str, Any]]:
+        self.calls.append(
+            (
+                "search_bbox",
+                {
+                    "bounds": bounds,
+                    "tag_filters": [dict(value) for value in tag_filters],
+                    "limit": limit,
+                },
+            )
+        )
+        return self.polygon_response[:limit]
+
+    async def close(self) -> None:
+        self.closed = True
+
+
+class FakeParcelProvider:
+    def __init__(self) -> None:
+        self.closed = False
+        self.queries: list[str] = []
+        self.record = ParcelRecord(
+            cadastral_number="52:24:0000000:2216",
+            address="Нижегородская область, тестовый участок",
+            declared_area_m2=10_000,
+            geometry=Polygon(
+                [
+                    (44.0018, 56.3286),
+                    (44.0024, 56.3286),
+                    (44.0024, 56.3291),
+                    (44.0018, 56.3291),
+                    (44.0018, 56.3286),
+                ]
+            ),
+        )
+
+    async def get_parcel(self, cadastral_number: str) -> ParcelRecord:
+        self.queries.append(cadastral_number)
+        return self.record
 
     async def close(self) -> None:
         self.closed = True
