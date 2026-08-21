@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 import httpx
 from pydantic import ValidationError
 from pynspd import errors as nspd_errors
@@ -9,6 +11,8 @@ from pynspd import errors as nspd_errors
 from .parcel import NotLandParcelError, ParcelGeometryError, ParcelNotFoundError
 from .schemas import ToolError
 from .spatial import GeometryLimitError, GeometryUnavailableError
+
+logger = logging.getLogger(__name__)
 
 
 class OsmServiceError(RuntimeError):
@@ -63,6 +67,10 @@ def exception_to_tool_error(exc: Exception) -> ToolError:
             message=str(exc),
             retryable=True,
         )
+    logger.error(
+        "Unhandled exception while executing an OpenStreetMap tool",
+        exc_info=(type(exc), exc, exc.__traceback__),
+    )
     return ToolError(
         code="internal_error",
         message="Unexpected error while executing the OpenStreetMap tool",

@@ -20,7 +20,7 @@ from .errors import OsmServiceError
 DEFAULT_NOMINATIM_URL = "https://nominatim.openstreetmap.org"
 DEFAULT_OVERPASS_URL = "https://overpass-api.de/api/interpreter"
 DEFAULT_USER_AGENT = (
-    "pyosm-agents/0.2 (+https://github.com/SergeyMalashenko/pyosm-agents)"
+    "pyosm-agents/0.2.1 (+https://github.com/SergeyMalashenko/pyosm-agents)"
 )
 
 

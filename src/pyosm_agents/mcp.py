@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Sequence
-from contextlib import asynccontextmanager
 from typing import Any
 
 from .core import (
@@ -67,18 +66,10 @@ def create_mcp_server(
     service = tools or OsmTools()
     registry = create_default_registry(service)
 
-    @asynccontextmanager
-    async def lifespan(_: Any):
-        try:
-            yield {"tools": service, "registry": registry}
-        finally:
-            await registry.close()
-
     server_class = _load_mcp_server_class()
     server = server_class(
         name,
         instructions=instructions,
-        lifespan=lifespan,
         host=host,
         port=port,
         streamable_http_path=streamable_http_path,
@@ -239,6 +230,29 @@ def create_mcp_server(
     return server
 
 
+async def _run_server(
+    server: Any,
+    service: OsmTools,
+    transport: str,
+) -> None:
+    """Run FastMCP and close shared clients once the whole process stops.
+
+    FastMCP's low-level lifespan is scoped to an MCP session. In stateless HTTP
+    mode that means one lifespan per HTTP request, so it must not own clients
+    shared by all requests.
+    """
+
+    try:
+        if transport == "stdio":
+            await server.run_stdio_async()
+        elif transport == "streamable-http":
+            await server.run_streamable_http_async()
+        else:  # pragma: no cover - argparse restricts public CLI values
+            raise ValueError(f"Unsupported MCP transport: {transport}")
+    finally:
+        await service.close()
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="pyosm-mcp",
@@ -271,16 +285,23 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     args = _build_parser().parse_args(argv)
     try:
+        import anyio
+
+        service = OsmTools()
         server = create_mcp_server(
+            service,
             host=args.host,
             port=args.port,
             streamable_http_path=args.streamable_http_path,
             stateless_http=not args.stateful_http,
             json_response=not args.sse_response,
         )
-    except MCPDependencyError as exc:
-        raise SystemExit(str(exc)) from exc
-    server.run(transport=args.transport)
+    except (ImportError, MCPDependencyError) as exc:
+        raise SystemExit(
+            "MCP support is not installed. Install it with "
+            "`pip install 'pyosm-agents[mcp]'`."
+        ) from exc
+    anyio.run(_run_server, server, service, args.transport)
 
 
 if __name__ == "__main__":  # pragma: no cover

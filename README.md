@@ -88,6 +88,11 @@ Streamable HTTP on port 8002 (port 8001 can remain assigned to `pynspd-mcp`):
 pyosm-mcp --transport streamable-http --host 127.0.0.1 --port 8002
 ```
 
+Stateless HTTP is the default. The server keeps its shared rate limiter, cache,
+and upstream clients alive across MCP requests and closes them when the server
+process stops. Unexpected implementation errors are logged with a traceback on
+the server while clients receive the stable `internal_error` envelope.
+
 Or let an MCP client start one stdio process itself:
 
 ```bash

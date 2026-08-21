@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from typing import Any
+from unittest.mock import AsyncMock
 
+import httpx
 import pytest
 
 from pyosm_agents.core import OsmTools
-from pyosm_agents.mcp import _build_parser, create_mcp_server
+from pyosm_agents.mcp import _build_parser, _run_server, create_mcp_server
 
 from .fakes import FakeOsmClient, FakeParcelProvider
 
@@ -40,6 +42,7 @@ def test_mcp_server_registers_five_tools(monkeypatch: pytest.MonkeyPatch) -> Non
     assert server.kwargs["stateless_http"] is True
     assert server.kwargs["json_response"] is True
     assert server.kwargs["port"] == 8002
+    assert "lifespan" not in server.kwargs
 
 
 async def test_mcp_tool_uses_structured_envelope(
@@ -71,6 +74,110 @@ async def test_mcp_land_parcel_tool_is_self_contained(
     assert result.ok
     assert result.data is not None
     assert result.data.parcel.cadastral_number == "52:24:0000000:2216"
+
+
+async def test_tools_remain_available_across_stateless_requests(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("pyosm_agents.mcp._load_mcp_server_class", lambda: FakeFastMCP)
+    service = OsmTools(FakeOsmClient())
+    service.close = AsyncMock(wraps=service.close)  # type: ignore[method-assign]
+    server = create_mcp_server(service)
+
+    first = await server.tools["osm_geocode"]("Нижний Новгород")
+    second = await server.tools["osm_geocode"]("Москва")
+
+    assert first.ok
+    assert second.ok
+    service.close.assert_not_awaited()
+
+
+@pytest.mark.filterwarnings("ignore:Field 'lifespan' has an incomplete definition")
+async def test_real_stateless_http_call_survives_initialize_request() -> None:
+    pytest.importorskip("mcp.server.fastmcp")
+
+    client = FakeOsmClient()
+    parcel_provider = FakeParcelProvider()
+    service = OsmTools(client, parcel_provider=parcel_provider)
+    # Reproduce the ownership of the default production service: the previous
+    # MCP lifespan closed both clients after the initialize HTTP request.
+    service._owns_client = True
+    service._owns_parcel_provider = True
+    app = create_mcp_server(service).streamable_http_app()
+    headers = {
+        "accept": "application/json, text/event-stream",
+        "content-type": "application/json",
+    }
+
+    async with (
+        app.router.lifespan_context(app),
+        httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://127.0.0.1:8002",
+        ) as http,
+    ):
+        initialized = await http.post(
+            "/mcp",
+            headers=headers,
+            json={
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-06-18",
+                    "capabilities": {},
+                    "clientInfo": {"name": "pytest", "version": "1"},
+                },
+            },
+        )
+        called = await http.post(
+            "/mcp",
+            headers=headers,
+            json={
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/call",
+                "params": {
+                    "name": "osm_analyze_land_parcel",
+                    "arguments": {
+                        "cadastral_number": "52:24:0000000:2216",
+                        "blocks": ["buildings", "transport"],
+                        "limit_per_block": 5,
+                        "include_geometry": False,
+                    },
+                },
+            },
+        )
+
+    assert initialized.status_code == 200
+    assert called.status_code == 200
+    assert called.json()["result"]["structuredContent"]["ok"] is True
+    assert not client.closed
+    assert not parcel_provider.closed
+
+
+@pytest.mark.parametrize("transport", ["stdio", "streamable-http"])
+async def test_cli_runner_closes_service_at_process_shutdown(
+    transport: str,
+) -> None:
+    class FakeRunnableServer:
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        async def run_stdio_async(self) -> None:
+            self.calls.append("stdio")
+
+        async def run_streamable_http_async(self) -> None:
+            self.calls.append("streamable-http")
+
+    server = FakeRunnableServer()
+    service = OsmTools(FakeOsmClient())
+    service.close = AsyncMock(wraps=service.close)  # type: ignore[method-assign]
+
+    await _run_server(server, service, transport)
+
+    assert server.calls == [transport]
+    service.close.assert_awaited_once_with()
 
 
 def test_cli_defaults_to_stdio_and_port_8002() -> None:
