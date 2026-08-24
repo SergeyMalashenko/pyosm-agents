@@ -1,8 +1,6 @@
-from shapely.geometry import mapping
-
 from pyosm_agents.core import OsmTools
 
-from .fakes import FakeOsmClient, FakeParcelProvider
+from .fakes import FakeOsmClient, PARCEL_GEOMETRY
 
 
 async def test_geocode_normalizes_result_and_attribution() -> None:
@@ -78,11 +76,10 @@ async def test_caller_owned_client_is_not_closed() -> None:
 
 async def test_polygon_search_classifies_exact_geometry() -> None:
     client = FakeOsmClient()
-    parcel_provider = FakeParcelProvider()
-    tools = OsmTools(client, parcel_provider=parcel_provider)
+    tools = OsmTools(client)
 
     result = await tools.search_in_polygon(
-        dict(mapping(parcel_provider.record.geometry)),
+        PARCEL_GEOMETRY,
         tags={"building": None},
         include_geometry=True,
     )
@@ -101,30 +98,54 @@ async def test_polygon_search_classifies_exact_geometry() -> None:
     assert road.relation.intersection_length_m > 0
 
 
-async def test_land_parcel_analysis_groups_features_into_blocks() -> None:
+async def test_area_analysis_expands_circle_and_groups_nearby_features() -> None:
     client = FakeOsmClient()
-    parcel_provider = FakeParcelProvider()
-    tools = OsmTools(client, parcel_provider=parcel_provider)
+    tools = OsmTools(client)
 
-    result = await tools.analyze_land_parcel(
-        "52:24:0000000:2216",
+    result = await tools.analyze_area(
+        PARCEL_GEOMETRY,
+        margin_m=1000,
         blocks=["buildings", "transport", "poi"],
         limit_per_block=10,
+        include_geometry=True,
     )
 
     assert result.ok
     assert result.data is not None
-    assert parcel_provider.queries == ["52:24:0000000:2216"]
     counts = {block.block: block.returned_count for block in result.data.blocks}
-    assert counts == {"buildings": 1, "transport": 1, "poi": 1}
-    assert result.data.parcel.address == "Нижегородская область, тестовый участок"
+    assert counts == {"buildings": 2, "transport": 2, "poi": 1}
+    assert result.data.search_area.margin_m == 1000
+    assert result.data.search_area.search_radius_m == (
+        result.data.search_area.parcel_minimum_radius_m + 1000
+    )
+    assert result.data.search_area.geojson["type"] == "Polygon"
+    nearby = next(
+        feature
+        for block in result.data.blocks
+        for feature in block.features
+        if feature.osm_id == 403
+    )
+    assert nearby.relation.kind == "no_intersection"
+    assert nearby.search_relation == "inside_search_area"
+    assert nearby.distance_to_parcel_m is not None
+    assert nearby.distance_to_parcel_m > 0
+    crossing = next(
+        feature
+        for block in result.data.blocks
+        for feature in block.features
+        if feature.osm_id == 405
+    )
+    assert crossing.search_relation in {
+        "inside_search_area",
+        "intersects_search_area",
+    }
+    returned_ids = {
+        feature.osm_id
+        for block in result.data.blocks
+        for feature in block.features
+    }
+    assert 404 not in returned_ids
     assert client.calls[-1][0] == "search_bbox"
-
-
-async def test_caller_owned_parcel_provider_is_not_closed() -> None:
-    provider = FakeParcelProvider()
-    tools = OsmTools(FakeOsmClient(), parcel_provider=provider)
-
-    await tools.close()
-
-    assert not provider.closed
+    west, south, east, north = client.calls[-1][1]["bounds"]
+    assert west < 44.0018 and south < 56.3286
+    assert east > 44.0024 and north > 56.3291

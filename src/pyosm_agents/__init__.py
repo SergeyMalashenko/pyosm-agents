@@ -1,10 +1,9 @@
 """Agent-safe tools for OpenStreetMap services."""
 
 from .core import (
+    AreaOsmAnalysisData,
     GeocodeData,
-    LandParcelOsmAnalysisData,
     NearbySearchData,
-    NspdParcelProvider,
     OsmBlockName,
     OsmTools,
     PolygonSearchData,
@@ -16,10 +15,9 @@ from .core import (
 )
 
 __all__ = [
+    "AreaOsmAnalysisData",
     "GeocodeData",
-    "LandParcelOsmAnalysisData",
     "NearbySearchData",
-    "NspdParcelProvider",
     "OsmBlockName",
     "OsmTools",
     "PolygonSearchData",
@@ -30,4 +28,4 @@ __all__ = [
     "create_default_registry",
 ]
 
-__version__ = "0.2.1"
+__version__ = "0.3.0"

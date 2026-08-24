@@ -2,7 +2,7 @@ import pytest
 from pydantic import ValidationError
 
 from pyosm_agents.core import (
-    AnalyzeLandParcelInput,
+    AnalyzeAreaInput,
     GeocodeInput,
     NearbySearchInput,
     PolygonSearchInput,
@@ -73,16 +73,22 @@ def test_polygon_search_reuses_safe_tag_validation() -> None:
         )
 
 
-def test_land_parcel_input_normalizes_number_and_blocks() -> None:
-    value = AnalyzeLandParcelInput(
-        cadastral_number=" 52:24:0000000:2216 ",
+def test_area_input_deduplicates_blocks_and_defaults_to_one_kilometre() -> None:
+    value = AnalyzeAreaInput(
+        geometry={"type": "Polygon", "coordinates": []},
         blocks=["buildings", "buildings", "poi"],
     )
 
-    assert value.cadastral_number == "52:24:0000000:2216"
     assert value.blocks == ["buildings", "poi"]
+    assert value.source_crs == "EPSG:4326"
+    assert value.margin_m == 1000
 
 
-def test_land_parcel_input_rejects_invalid_number() -> None:
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [("source_crs", "EPSG:3857"), ("margin_m", -1), ("margin_m", 10_001)],
+)
+def test_area_input_rejects_unsupported_crs_or_margin(field: str, value) -> None:
+    arguments = {"geometry": {"type": "Polygon", "coordinates": []}, field: value}
     with pytest.raises(ValidationError):
-        AnalyzeLandParcelInput(cadastral_number="not-a-number")
+        AnalyzeAreaInput(**arguments)

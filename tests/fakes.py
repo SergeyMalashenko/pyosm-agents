@@ -3,9 +3,18 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from shapely.geometry import Polygon
-
-from pyosm_agents.core.parcel import ParcelRecord
+PARCEL_GEOMETRY = {
+    "type": "Polygon",
+    "coordinates": [
+        [
+            [44.0018, 56.3286],
+            [44.0024, 56.3286],
+            [44.0024, 56.3291],
+            [44.0018, 56.3291],
+            [44.0018, 56.3286],
+        ]
+    ],
+}
 
 
 class FakeOsmClient:
@@ -25,7 +34,10 @@ class FakeOsmClient:
                 "category": "boundary",
                 "type": "administrative",
                 "importance": 0.8,
-                "address": {"city": "Нижний Новгород", "country_code": "ru"},
+                "address": {
+                    "city": "Нижний Новгород",
+                    "country_code": "ru",
+                },
                 "geojson": {"type": "Polygon", "coordinates": []},
             }
         ]
@@ -72,6 +84,37 @@ class FakeOsmClient:
                 "geometry": [
                     {"lat": 56.3285, "lon": 44.0015},
                     {"lat": 56.3295, "lon": 44.0025},
+                ],
+            },
+            {
+                "type": "way",
+                "id": 403,
+                "tags": {"building": "warehouse", "name": "Склад рядом"},
+                "geometry": [
+                    {"lat": 56.3287, "lon": 44.0100},
+                    {"lat": 56.3287, "lon": 44.0105},
+                    {"lat": 56.3290, "lon": 44.0105},
+                    {"lat": 56.3290, "lon": 44.0100},
+                    {"lat": 56.3287, "lon": 44.0100},
+                ],
+            },
+            {
+                "type": "node",
+                "id": 404,
+                "lat": 56.3288,
+                "lon": 44.0400,
+                "tags": {"amenity": "school", "name": "Далёкая школа"},
+            },
+            {
+                "type": "way",
+                "id": 405,
+                "tags": {
+                    "highway": "secondary",
+                    "name": "Северная дорога",
+                },
+                "geometry": [
+                    {"lat": 56.3350, "lon": 43.9800},
+                    {"lat": 56.3350, "lon": 44.0300},
                 ],
             },
         ]
@@ -163,33 +206,6 @@ class FakeOsmClient:
             )
         )
         return self.polygon_response[:limit]
-
-    async def close(self) -> None:
-        self.closed = True
-
-
-class FakeParcelProvider:
-    def __init__(self) -> None:
-        self.closed = False
-        self.queries: list[str] = []
-        self.record = ParcelRecord(
-            cadastral_number="52:24:0000000:2216",
-            address="Нижегородская область, тестовый участок",
-            declared_area_m2=10_000,
-            geometry=Polygon(
-                [
-                    (44.0018, 56.3286),
-                    (44.0024, 56.3286),
-                    (44.0024, 56.3291),
-                    (44.0018, 56.3291),
-                    (44.0018, 56.3286),
-                ]
-            ),
-        )
-
-    async def get_parcel(self, cadastral_number: str) -> ParcelRecord:
-        self.queries.append(cadastral_number)
-        return self.record
 
     async def close(self) -> None:
         self.closed = True

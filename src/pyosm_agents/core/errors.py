@@ -6,9 +6,7 @@ import logging
 
 import httpx
 from pydantic import ValidationError
-from pynspd import errors as nspd_errors
 
-from .parcel import NotLandParcelError, ParcelGeometryError, ParcelNotFoundError
 from .schemas import ToolError
 from .spatial import GeometryLimitError, GeometryUnavailableError
 
@@ -29,24 +27,10 @@ def exception_to_tool_error(exc: Exception) -> ToolError:
 
     if isinstance(exc, ValidationError):
         return ToolError(code="invalid_arguments", message=str(exc))
-    if isinstance(exc, ParcelNotFoundError):
-        return ToolError(code="not_found", message=str(exc))
-    if isinstance(exc, NotLandParcelError):
-        return ToolError(code="not_a_land_parcel", message=str(exc))
-    if isinstance(exc, ParcelGeometryError):
-        return ToolError(code="parcel_geometry_unavailable", message=str(exc))
     if isinstance(exc, GeometryLimitError):
         return ToolError(code="contour_too_large", message=str(exc))
     if isinstance(exc, GeometryUnavailableError):
         return ToolError(code="invalid_geometry", message=str(exc))
-    if isinstance(exc, nspd_errors.NotFound):
-        return ToolError(code="not_found", message=str(exc))
-    if isinstance(exc, nspd_errors.BlockedIP):
-        return ToolError(code="nspd_access_blocked", message=str(exc), retryable=True)
-    if isinstance(exc, nspd_errors.TooManyRequests):
-        return ToolError(code="nspd_rate_limited", message=str(exc), retryable=True)
-    if isinstance(exc, nspd_errors.PynspdServerError):
-        return ToolError(code="nspd_unavailable", message=str(exc), retryable=True)
     if isinstance(exc, LookupError):
         return ToolError(code="not_found", message=str(exc))
     if isinstance(exc, OsmServiceError):

@@ -10,7 +10,7 @@ import pytest
 from pyosm_agents.core import OsmTools
 from pyosm_agents.mcp import _build_parser, _run_server, create_mcp_server
 
-from .fakes import FakeOsmClient, FakeParcelProvider
+from .fakes import FakeOsmClient, PARCEL_GEOMETRY
 
 
 class FakeFastMCP:
@@ -37,7 +37,7 @@ def test_mcp_server_registers_five_tools(monkeypatch: pytest.MonkeyPatch) -> Non
         "osm_reverse_geocode",
         "osm_search_nearby",
         "osm_search_in_polygon",
-        "osm_analyze_land_parcel",
+        "osm_analyze_area",
     ]
     assert server.kwargs["stateless_http"] is True
     assert server.kwargs["json_response"] is True
@@ -58,22 +58,20 @@ async def test_mcp_tool_uses_structured_envelope(
     assert result.data.results[0].osm_id == 200
 
 
-async def test_mcp_land_parcel_tool_is_self_contained(
+async def test_mcp_area_tool_accepts_caller_provided_contour(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr("pyosm_agents.mcp._load_mcp_server_class", lambda: FakeFastMCP)
-    server = create_mcp_server(
-        OsmTools(FakeOsmClient(), parcel_provider=FakeParcelProvider())
-    )
+    server = create_mcp_server(OsmTools(FakeOsmClient()))
 
-    result = await server.tools["osm_analyze_land_parcel"](
-        "52:24:0000000:2216",
-        ["buildings", "transport", "poi"],
+    result = await server.tools["osm_analyze_area"](
+        PARCEL_GEOMETRY,
+        blocks=["buildings", "transport", "poi"],
     )
 
     assert result.ok
     assert result.data is not None
-    assert result.data.parcel.cadastral_number == "52:24:0000000:2216"
+    assert result.data.search_area.margin_m == 1000
 
 
 async def test_tools_remain_available_across_stateless_requests(
@@ -97,12 +95,10 @@ async def test_real_stateless_http_call_survives_initialize_request() -> None:
     pytest.importorskip("mcp.server.fastmcp")
 
     client = FakeOsmClient()
-    parcel_provider = FakeParcelProvider()
-    service = OsmTools(client, parcel_provider=parcel_provider)
-    # Reproduce the ownership of the default production service: the previous
-    # MCP lifespan closed both clients after the initialize HTTP request.
+    service = OsmTools(client)
+    # Reproduce ownership of the default production service: the previous MCP
+    # lifespan closed its shared client after the initialize HTTP request.
     service._owns_client = True
-    service._owns_parcel_provider = True
     app = create_mcp_server(service).streamable_http_app()
     headers = {
         "accept": "application/json, text/event-stream",
@@ -138,9 +134,11 @@ async def test_real_stateless_http_call_survives_initialize_request() -> None:
                 "id": 2,
                 "method": "tools/call",
                 "params": {
-                    "name": "osm_analyze_land_parcel",
+                    "name": "osm_analyze_area",
                     "arguments": {
-                        "cadastral_number": "52:24:0000000:2216",
+                        "geometry": PARCEL_GEOMETRY,
+                        "source_crs": "EPSG:4326",
+                        "margin_m": 1000,
                         "blocks": ["buildings", "transport"],
                         "limit_per_block": 5,
                         "include_geometry": False,
@@ -153,7 +151,6 @@ async def test_real_stateless_http_call_survives_initialize_request() -> None:
     assert called.status_code == 200
     assert called.json()["result"]["structuredContent"]["ok"] is True
     assert not client.closed
-    assert not parcel_provider.closed
 
 
 @pytest.mark.parametrize("transport", ["stdio", "streamable-http"])

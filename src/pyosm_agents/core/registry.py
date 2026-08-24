@@ -11,7 +11,7 @@ from typing_extensions import Self
 
 from .errors import exception_to_tool_error
 from .schemas import (
-    AnalyzeLandParcelInput,
+    AnalyzeAreaInput,
     GeocodeInput,
     NearbySearchInput,
     PolygonSearchInput,
@@ -131,14 +131,14 @@ def create_default_registry(tools: OsmTools | None = None) -> ToolRegistry:
                 handler=service.search_in_polygon,
             ),
             ToolDefinition(
-                name="osm_analyze_land_parcel",
+                name="osm_analyze_area",
                 description=(
-                    "Resolve a land parcel by cadastral number through NSPD, then "
-                    "analyze buildings, transport, land use, infrastructure, and "
-                    "POI blocks from OpenStreetMap against its exact contour."
+                    "Build a minimum enclosing circle around a WGS84 contour, "
+                    "expand it by a metric margin, and return thematic "
+                    "OpenStreetMap objects inside or intersecting that area."
                 ),
-                input_model=AnalyzeLandParcelInput,
-                handler=service.analyze_land_parcel,
+                input_model=AnalyzeAreaInput,
+                handler=service.analyze_area,
             ),
         ],
         close_callback=service.close,

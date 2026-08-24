@@ -1,6 +1,6 @@
 from pyosm_agents.core import OsmTools, create_default_registry
 
-from .fakes import FakeOsmClient
+from .fakes import FakeOsmClient, PARCEL_GEOMETRY
 
 
 def test_registry_contains_public_tools() -> None:
@@ -11,7 +11,7 @@ def test_registry_contains_public_tools() -> None:
         "osm_reverse_geocode",
         "osm_search_nearby",
         "osm_search_in_polygon",
-        "osm_analyze_land_parcel",
+        "osm_analyze_area",
     ]
 
 
@@ -39,6 +39,21 @@ async def test_registry_invokes_tool() -> None:
 
     assert result.ok
     assert client.calls[0][1]["country_codes"] == ["ru"]
+
+
+async def test_registry_validates_area_crs_before_calling_overpass() -> None:
+    client = FakeOsmClient()
+    registry = create_default_registry(OsmTools(client))
+
+    result = await registry.call(
+        "osm_analyze_area",
+        {"geometry": PARCEL_GEOMETRY, "source_crs": "EPSG:3857"},
+    )
+
+    assert not result.ok
+    assert result.error is not None
+    assert result.error.code == "invalid_arguments"
+    assert client.calls == []
 
 
 async def test_unknown_tool_has_stable_error() -> None:

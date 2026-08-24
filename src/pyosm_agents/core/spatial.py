@@ -1,12 +1,13 @@
-"""Geometry preparation, Overpass decoding, and exact parcel relationships."""
+"""Geometry preparation, circular search areas, and exact relationships."""
 
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
+from dataclasses import dataclass
 from typing import Any
 
 from pyproj import CRS, Transformer
-from shapely import make_valid
+from shapely import make_valid, minimum_bounding_circle, minimum_bounding_radius
 from shapely.geometry import (
     GeometryCollection,
     LineString,
@@ -21,7 +22,11 @@ from shapely.geometry import (
 from shapely.geometry.base import BaseGeometry
 from shapely.ops import polygonize, transform, unary_union
 
-from .schemas import GeometrySummary, SpatialRelationData
+from .schemas import (
+    GeometrySummary,
+    SearchAreaRelationKind,
+    SpatialRelationData,
+)
 
 AREA_EPSILON_M2 = 1e-6
 LENGTH_EPSILON_M = 1e-6
@@ -275,6 +280,12 @@ class ParcelSpatialAnalyzer:
             return self._analyze_points(points)
         return SpatialRelationData(kind="no_intersection")
 
+    def distance_to_parcel_m(self, geometry: BaseGeometry) -> float:
+        """Return the shortest exact distance from an object to the parcel."""
+
+        projected = transform(self._project, geometry)
+        return round(float(self._parcel.distance(projected)), 3)
+
     def _analyze_polygon(self, geometry: BaseGeometry) -> SpatialRelationData:
         intersection_area = float(self._parcel.intersection(geometry).area)
         if intersection_area <= AREA_EPSILON_M2:
@@ -334,6 +345,63 @@ class ParcelSpatialAnalyzer:
             kind=kind,
             object_coverage_percent=round(inside_count / len(points) * 100.0, 6),
         )
+
+
+@dataclass(frozen=True)
+class CircularSearchArea:
+    """WGS84 representation of a locally constructed metric search circle."""
+
+    geometry: BaseGeometry
+    center: tuple[float, float]
+    parcel_minimum_radius_m: float
+    margin_m: int
+    search_radius_m: float
+
+
+class SearchAreaAnalyzer:
+    """Filter OSM objects by a circle and classify them against the parcel."""
+
+    def __init__(self, parcel: BaseGeometry, *, margin_m: int) -> None:
+        forward, inverse = _metric_transformers(parcel)
+        projected_parcel = transform(forward.transform, parcel)
+        minimum_circle = minimum_bounding_circle(projected_parcel)
+        minimum_radius = float(minimum_bounding_radius(projected_parcel))
+        projected_center = minimum_circle.centroid
+        search_radius = minimum_radius + margin_m
+        projected_search_area = projected_center.buffer(search_radius, quad_segs=32)
+        search_area = transform(inverse.transform, projected_search_area)
+        center = transform(inverse.transform, projected_center)
+
+        self.area = CircularSearchArea(
+            geometry=search_area,
+            center=(float(center.x), float(center.y)),
+            parcel_minimum_radius_m=round(minimum_radius, 3),
+            margin_m=margin_m,
+            search_radius_m=round(search_radius, 3),
+        )
+        self._search_area = projected_search_area
+        self._project = forward.transform
+        self._parcel = ParcelSpatialAnalyzer(parcel)
+
+    def intersects_search_area(self, geometry: BaseGeometry) -> bool:
+        """Include objects that are inside or cross the circular search area."""
+
+        projected = transform(self._project, geometry)
+        return bool(self._search_area.intersects(projected))
+
+    def search_relation(
+        self, geometry: BaseGeometry
+    ) -> SearchAreaRelationKind:
+        projected = transform(self._project, geometry)
+        if self._search_area.covers(projected):
+            return "inside_search_area"
+        return "intersects_search_area"
+
+    def parcel_relation(self, geometry: BaseGeometry) -> SpatialRelationData:
+        return self._parcel.analyze(geometry)
+
+    def distance_to_parcel_m(self, geometry: BaseGeometry) -> float:
+        return self._parcel.distance_to_parcel_m(geometry)
 
 
 def geometry_to_geojson(geometry: BaseGeometry) -> dict[str, Any]:

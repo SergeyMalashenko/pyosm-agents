@@ -1,32 +1,38 @@
 # pyosm-agents
 
-`pyosm-agents` exposes a small, predictable set of OpenStreetMap operations to
-LLM agents. It includes a framework-neutral Python API and an MCP server for
-Hermes, MCP Inspector, and other compatible clients. Land parcels can be
-addressed directly by cadastral number: the server resolves their contours with
-`pynspd` and analyzes OpenStreetMap data locally.
+`pyosm-agents` exposes bounded OpenStreetMap and Nominatim operations through a
+framework-neutral Python API and an MCP server. The package is independent from
+NSPD: it accepts WGS84 coordinates or GeoJSON and never resolves cadastral
+numbers itself.
 
 ## MCP tools
 
-| Tool | Purpose | Upstream service |
+| Tool | Purpose | Upstream |
 |---|---|---|
 | `osm_geocode` | Find coordinates and OSM objects by an address or place name | Nominatim |
 | `osm_reverse_geocode` | Describe a place or address at WGS84 coordinates | Nominatim |
-| `osm_search_nearby` | Find nodes, ways, and relations near coordinates by exact OSM tags | Overpass API |
-| `osm_search_in_polygon` | Find tagged OSM objects in a GeoJSON contour and verify exact relations locally | Overpass API |
-| `osm_analyze_land_parcel` | Resolve an NSPD parcel by cadastral number and analyze thematic OSM blocks | NSPD + Overpass API |
+| `osm_search_nearby` | Find objects near coordinates by exact OSM tags | Overpass API |
+| `osm_search_in_polygon` | Find tagged objects intersecting an exact GeoJSON contour | Overpass API |
+| `osm_analyze_area` | Collect thematic infrastructure in an expanded circle around a GeoJSON contour | Overpass API |
 
-`osm_search_nearby` does not accept arbitrary Overpass QL. It accepts one to
-five exact tags, a radius of at most 5 km, and a result limit of at most 100. The
-server builds and escapes the query itself.
+Arbitrary Overpass QL is not accepted. The server generates bounded queries and
+preserves the required OpenStreetMap attribution.
 
-`osm_search_in_polygon` and `osm_analyze_land_parcel` use the parcel bounding
-box in Overpass only to retrieve candidates efficiently. Points, lines,
-polygons, and supported
-multipolygon relations are then checked against the original contour with
-Shapely in a local metric projection. Boundary-only contact is excluded.
+## Circular area analysis
 
-The cadastral tool exposes five stable blocks:
+`osm_analyze_area` accepts a Polygon or MultiPolygon in `EPSG:4326`. It:
+
+1. validates and repairs the contour with Shapely;
+2. transforms it to a local Lambert azimuthal equal-area projection;
+3. calculates the minimum circle containing the complete contour;
+4. adds `margin_m`, which defaults to 1000 metres, to the minimum radius;
+5. requests candidates using the circle's bounding box;
+6. reconstructs node, way, and relation geometries;
+7. retains objects that are inside or intersect the exact circle;
+8. calculates every object's distance and relation to the original contour;
+9. groups objects into stable thematic blocks.
+
+The five blocks are:
 
 | Block | Representative OSM tag keys |
 |---|---|
@@ -36,70 +42,76 @@ The cadastral tool exposes five stable blocks:
 | `infrastructure` | `power`, `man_made`, `utility`, `telecom`, `pipeline` |
 | `poi` | `amenity`, `shop`, `tourism`, `office`, `craft`, `healthcare`, `emergency` |
 
-Each result has one of four exclusive relationships:
-`no_intersection`, `intersection`, `object_inside_parcel`, or
-`parcel_inside_object`. Only the latter three are returned as matches.
+The result includes:
 
-The composite tool calls `pynspd` in-process; it does not call or require a
-separate `pynspd-mcp` process. Keeping `pynspd-http` enabled in Hermes remains
-useful for NSPD-specific parcel attributes and regulatory layers.
+- a summary of the input contour;
+- the search centre, minimum parcel radius, margin, final radius, bbox, and
+  search-area GeoJSON;
+- candidate and discarded counts;
+- block completeness flags;
+- normalized OSM objects with tags, URL, optional geometry,
+  `distance_to_parcel_m`, relation to the parcel, and relation to the search
+  area.
 
-All successful tool responses use the same envelope:
+Objects outside the parcel normally have `relation.kind=no_intersection` but
+remain in the result when they fall inside the expanded search circle. Linear
+objects crossing the circle are returned with
+`search_relation=intersects_search_area`.
 
-```json
-{
-  "ok": true,
-  "data": {},
-  "error": null,
-  "metadata": {
-    "provider": "Nominatim",
-    "attribution": "© OpenStreetMap contributors",
-    "license": "Open Data Commons Open Database License (ODbL)",
-    "license_url": "https://www.openstreetmap.org/copyright"
-  }
+## Framework-neutral use
+
+```python
+import asyncio
+
+from pyosm_agents import OsmTools
+
+
+PARCEL = {
+    "type": "Polygon",
+    "coordinates": [
+        [
+            [44.0018, 56.3286],
+            [44.0024, 56.3286],
+            [44.0024, 56.3291],
+            [44.0018, 56.3291],
+            [44.0018, 56.3286],
+        ]
+    ],
 }
+
+
+async def main() -> None:
+    async with OsmTools() as tools:
+        result = await tools.analyze_area(
+            PARCEL,
+            margin_m=1000,
+            blocks=[
+                "buildings",
+                "transport",
+                "landuse",
+                "infrastructure",
+                "poi",
+            ],
+            limit_per_block=100,
+            include_geometry=True,
+        )
+        print(result.model_dump_json(indent=2))
+
+
+asyncio.run(main())
 ```
 
-## Installation
-
-From a clone of this repository:
+## Installation and server
 
 ```bash
 python -m pip install -e '.[mcp]'
-```
-
-The default public services can be replaced without changing the agent:
-
-```bash
-export PYOSM_NOMINATIM_URL=https://nominatim.example.org
-export PYOSM_OVERPASS_URL=https://overpass.example.org/api/interpreter
-export PYOSM_USER_AGENT='my-osm-agent/1.0 (+https://example.org/contact)'
-export PYOSM_CONTACT_EMAIL=osm@example.org
-```
-
-`PYOSM_CONTACT_EMAIL` is optional. Set a descriptive `PYOSM_USER_AGENT` that
-identifies your deployment. The defaults identify this project.
-
-## Run the MCP server
-
-Streamable HTTP on port 8002 (port 8001 can remain assigned to `pynspd-mcp`):
-
-```bash
 pyosm-mcp --transport streamable-http --host 127.0.0.1 --port 8002
 ```
 
-Stateless HTTP is the default. The server keeps its shared rate limiter, cache,
-and upstream clients alive across MCP requests and closes them when the server
-process stops. Unexpected implementation errors are logged with a traceback on
-the server while clients receive the stable `internal_error` envelope.
+The endpoint is `http://127.0.0.1:8002/mcp`. Stateless Streamable HTTP with JSON
+responses is the default.
 
-Or let an MCP client start one stdio process itself:
-
-```bash
-pyosm-mcp --transport stdio
-```
-
-Test discovery with MCP Inspector:
+Test discovery:
 
 ```bash
 npx -y @modelcontextprotocol/inspector \
@@ -108,63 +120,42 @@ npx -y @modelcontextprotocol/inspector \
   --method tools/list
 ```
 
-Example tool calls:
+Example area call:
 
 ```bash
 npx -y @modelcontextprotocol/inspector \
   --cli http://127.0.0.1:8002/mcp \
   --transport http \
   --method tools/call \
-  --tool-name osm_geocode \
-  --tool-arg 'query=Нижний Новгород, Кремль' \
-  --tool-arg 'country_codes=["ru"]'
-
-npx -y @modelcontextprotocol/inspector \
-  --cli http://127.0.0.1:8002/mcp \
-  --transport http \
-  --method tools/call \
-  --tool-name osm_search_nearby \
-  --tool-arg 'latitude=56.3287' \
-  --tool-arg 'longitude=44.0020' \
-  --tool-arg 'radius_m=1000' \
-  --tool-arg 'tags={"amenity":"hospital"}'
-
-npx -y @modelcontextprotocol/inspector \
-  --cli http://127.0.0.1:8002/mcp \
-  --transport http \
-  --method tools/call \
-  --tool-name osm_analyze_land_parcel \
+  --tool-name osm_analyze_area \
   --tool-args-json '{
-    "cadastral_number":"52:24:0000000:2216",
-    "blocks":["buildings","transport","landuse","infrastructure","poi"],
-    "limit_per_block":25,
-    "include_geometry":false
+    "geometry": {
+      "type": "Polygon",
+      "coordinates": [[[44.0018,56.3286],[44.0024,56.3286],[44.0024,56.3291],[44.0018,56.3291],[44.0018,56.3286]]]
+    },
+    "source_crs": "EPSG:4326",
+    "margin_m": 1000,
+    "blocks": ["buildings","transport","landuse","infrastructure","poi"],
+    "limit_per_block": 100,
+    "include_geometry": true
   }'
 ```
 
-For Hermes, register `http://127.0.0.1:8002/mcp` as an HTTP MCP server named,
-for example, `pyosm-http`, then verify it with:
+## Configuration
 
 ```bash
-hermes mcp test pyosm-http
+export PYOSM_NOMINATIM_URL=https://nominatim.example.org
+export PYOSM_OVERPASS_URL=https://overpass.example.org/api/interpreter
+export PYOSM_USER_AGENT='my-osm-agent/1.0 (+https://example.org/contact)'
+export PYOSM_CONTACT_EMAIL=osm@example.org
 ```
 
-## Public-service constraints
+Public-service calls remain bounded. Polygonal search areas are limited to
+500 km² and the thematic request uses a global candidate cap of 500. When a cap
+is reached, the result sets completeness flags and emits a warning instead of
+claiming that the returned set is exhaustive. A self-hosted Overpass deployment
+can support higher limits in a future configuration extension.
 
-The public Nominatim service is intended for moderate, user-triggered requests.
-This package serializes its Nominatim requests at one request per second and
-caches repeated requests in memory. Do not use the public endpoint for bulk
-geocoding, autocomplete, systematic scanning, or data extraction. Deploy your
-own Nominatim and/or Overpass instances for sustained workloads.
-
-Polygon requests are capped at 500 km². High-level parcel analysis requests at
-most 500 Overpass candidates and reports `global_limit_reached` when
-completeness cannot be guaranteed. These limits protect public endpoints; a
-self-hosted deployment can raise them in a future configuration extension.
-
-See the [Nominatim Usage Policy](https://operations.osmfoundation.org/policies/nominatim/),
-the [Nominatim API documentation](https://nominatim.org/release-docs/latest/api/Overview/),
-and the [Overpass QL documentation](https://wiki.openstreetmap.org/wiki/Overpass_API/Overpass_QL).
-
-OpenStreetMap data is community-maintained and can be incomplete. Preserve the
-required OpenStreetMap attribution in user-visible results.
+OpenStreetMap data is community-maintained and may be incomplete or outdated.
+Preserve `© OpenStreetMap contributors` and the ODbL attribution in user-visible
+outputs.

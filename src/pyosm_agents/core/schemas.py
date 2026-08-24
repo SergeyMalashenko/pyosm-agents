@@ -22,10 +22,10 @@ SpatialRelationKind = Literal[
     "object_inside_parcel",
     "parcel_inside_object",
 ]
+SearchAreaRelationKind = Literal["inside_search_area", "intersects_search_area"]
 
 TAG_KEY_PATTERN = re.compile(r"^[A-Za-z0-9_:.-]+$")
 COUNTRY_CODE_PATTERN = re.compile(r"^[A-Za-z]{2}$")
-CADASTRAL_NUMBER_PATTERN = re.compile(r"^\d+:\d+:\d+:\d+$")
 
 
 def _default_osm_blocks() -> list[OsmBlockName]:
@@ -174,14 +174,16 @@ class PolygonSearchInput(BaseModel):
         return NearbySearchInput.validate_tags(value)
 
 
-class AnalyzeLandParcelInput(BaseModel):
-    """Arguments for thematic OSM analysis of one EGRN land parcel."""
+class AnalyzeAreaInput(BaseModel):
+    """Arguments for thematic OSM analysis around a caller-provided contour."""
 
     model_config = ConfigDict(extra="forbid")
 
-    cadastral_number: str = Field(
-        description="Cadastral number in the form 77:05:0001005:19"
+    geometry: dict[str, Any] = Field(
+        description="WGS84 GeoJSON Polygon or MultiPolygon"
     )
+    source_crs: Literal["EPSG:4326"] = "EPSG:4326"
+    margin_m: int = Field(default=1000, ge=0, le=10_000)
     blocks: list[OsmBlockName] = Field(
         default_factory=_default_osm_blocks,
         min_length=1,
@@ -191,18 +193,6 @@ class AnalyzeLandParcelInput(BaseModel):
     )
     limit_per_block: int = Field(default=50, ge=1, le=100)
     include_geometry: bool = False
-
-    @field_validator("cadastral_number", mode="before")
-    @classmethod
-    def normalize_cadastral_number(cls, value: Any) -> str:
-        if not isinstance(value, str):
-            raise TypeError("Cadastral number must be a string")
-        normalized = re.sub(r"\s+", "", value)
-        if not CADASTRAL_NUMBER_PATTERN.fullmatch(normalized):
-            raise ValueError(
-                "Cadastral number must contain four numeric parts separated by ':'"
-            )
-        return normalized
 
     @field_validator("blocks")
     @classmethod
@@ -299,6 +289,8 @@ class OsmSpatialFeature(BaseModel):
     latitude: float
     longitude: float
     relation: SpatialRelationData
+    search_relation: SearchAreaRelationKind | None = None
+    distance_to_parcel_m: float | None = None
     tags: dict[str, str] = Field(default_factory=dict)
     osm_url: str
     geojson: dict[str, Any] | None = None
@@ -316,13 +308,15 @@ class PolygonSearchData(BaseModel):
     features: list[OsmSpatialFeature]
 
 
-class LandParcelSummary(BaseModel):
-    """Minimal parcel information attached to an OSM analysis."""
+class SearchAreaSummary(BaseModel):
+    """Minimum enclosing parcel circle expanded by the requested margin."""
 
-    cadastral_number: str
-    address: str | None = None
-    declared_area_m2: float | None = None
-    geometry: GeometrySummary
+    center: tuple[float, float]
+    parcel_minimum_radius_m: float
+    margin_m: int
+    search_radius_m: float
+    bbox: tuple[float, float, float, float]
+    geojson: dict[str, Any]
 
 
 class OsmBlockResult(BaseModel):
@@ -335,10 +329,11 @@ class OsmBlockResult(BaseModel):
     features: list[OsmSpatialFeature]
 
 
-class LandParcelOsmAnalysisData(BaseModel):
-    """Combined NSPD parcel and exact OSM spatial analysis."""
+class AreaOsmAnalysisData(BaseModel):
+    """Thematic OSM objects intersecting an expanded circular search area."""
 
-    parcel: LandParcelSummary
+    contour: GeometrySummary
+    search_area: SearchAreaSummary
     candidate_count: int
     discarded_candidate_count: int
     global_limit_reached: bool

@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, Literal
 
 from .core import (
+    AreaOsmAnalysisData,
     GeocodeData,
-    LandParcelOsmAnalysisData,
     NearbySearchData,
     OsmBlockName,
     OsmTools,
@@ -19,10 +19,11 @@ from .core import (
 )
 
 DEFAULT_INSTRUCTIONS = (
-    "Use osm_analyze_land_parcel when the input is a cadastral number: it "
-    "resolves the parcel through NSPD and checks thematic OSM objects against "
-    "the exact parcel contour. Use osm_search_in_polygon for caller-provided "
-    "GeoJSON polygons, osm_geocode for names or addresses, "
+    "Use osm_analyze_area for infrastructure analysis around a caller-provided "
+    "WGS84 GeoJSON contour. It constructs the minimum enclosing circle, adds "
+    "the requested metric margin, and filters Overpass candidates locally. "
+    "Use osm_search_in_polygon for exact-tag searches in GeoJSON polygons, "
+    "osm_geocode for names or addresses, "
     "osm_reverse_geocode for coordinates, and osm_search_nearby for radial "
     "searches. Arbitrary Overpass QL is not supported. Boundary-only contacts "
     "are excluded from polygon results. Treat OSM data as community-maintained "
@@ -199,17 +200,21 @@ def create_mcp_server(
         return ToolResult[PolygonSearchData].model_validate(result.model_dump())
 
     @server.tool()
-    async def osm_analyze_land_parcel(
-        cadastral_number: str,
+    async def osm_analyze_area(
+        geometry: dict[str, Any],
+        source_crs: Literal["EPSG:4326"] = "EPSG:4326",
+        margin_m: int = 1000,
         blocks: list[OsmBlockName] | None = None,
         limit_per_block: int = 50,
         include_geometry: bool = False,
-    ) -> ToolResult[LandParcelOsmAnalysisData]:
-        """Analyze thematic OSM blocks against an NSPD land-parcel contour.
+    ) -> ToolResult[AreaOsmAnalysisData]:
+        """Analyze OSM infrastructure around a WGS84 polygonal contour.
 
         Args:
-            cadastral_number: Four numeric parts separated by colons, for example
-                ``52:24:0000000:2216``.
+            geometry: WGS84 GeoJSON Polygon or MultiPolygon.
+            source_crs: Coordinate reference system; currently only
+                ``EPSG:4326`` is accepted.
+            margin_m: Metres added to the contour's minimum enclosing radius.
             blocks: Any of ``buildings``, ``transport``, ``landuse``,
                 ``infrastructure``, and ``poi``. Defaults to all five blocks.
             limit_per_block: Maximum returned objects per block, from 1 to 100.
@@ -218,14 +223,16 @@ def create_mcp_server(
         """
 
         arguments: dict[str, Any] = {
-            "cadastral_number": cadastral_number,
+            "geometry": geometry,
+            "source_crs": source_crs,
+            "margin_m": margin_m,
             "limit_per_block": limit_per_block,
             "include_geometry": include_geometry,
         }
         if blocks is not None:
             arguments["blocks"] = blocks
-        result = await registry.call("osm_analyze_land_parcel", arguments)
-        return ToolResult[LandParcelOsmAnalysisData].model_validate(result.model_dump())
+        result = await registry.call("osm_analyze_area", arguments)
+        return ToolResult[AreaOsmAnalysisData].model_validate(result.model_dump())
 
     return server
 
