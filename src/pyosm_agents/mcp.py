@@ -19,7 +19,7 @@ from .core import (
 )
 
 DEFAULT_INSTRUCTIONS = (
-    "Use osm_analyze_area for infrastructure analysis around a caller-provided "
+    "Use osm_analyze_area for natural and road analysis around a caller-provided "
     "WGS84 GeoJSON contour. It constructs the minimum enclosing circle, adds "
     "the requested metric margin, and filters Overpass candidates locally. "
     "Use osm_search_in_polygon for exact-tag searches in GeoJSON polygons, "
@@ -208,15 +208,16 @@ def create_mcp_server(
         limit_per_block: int = 50,
         include_geometry: bool = False,
     ) -> ToolResult[AreaOsmAnalysisData]:
-        """Analyze OSM infrastructure around a WGS84 polygonal contour.
+        """Analyze forests, waters, streams, and roads around a WGS84 contour.
 
         Args:
             geometry: WGS84 GeoJSON Polygon or MultiPolygon.
             source_crs: Coordinate reference system; currently only
                 ``EPSG:4326`` is accepted.
             margin_m: Metres added to the contour's minimum enclosing radius.
-            blocks: Any of ``buildings``, ``transport``, ``landuse``,
-                ``infrastructure``, and ``poi``. Defaults to all five blocks.
+            blocks: Any of ``forests``, ``lakes``, ``rivers``, ``streams``,
+                and ``roads``. Defaults to all five blocks. Forest, lake, and
+                river contours are always included in the response.
             limit_per_block: Maximum returned objects per block, from 1 to 100.
             include_geometry: Include matched OSM GeoJSON geometries. Keep false
                 for compact LLM responses.

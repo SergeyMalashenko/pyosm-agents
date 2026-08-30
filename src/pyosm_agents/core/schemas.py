@@ -10,11 +10,11 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 T = TypeVar("T")
 OsmElementType = Literal["node", "way", "relation"]
 OsmBlockName = Literal[
-    "buildings",
-    "transport",
-    "landuse",
-    "infrastructure",
-    "poi",
+    "forests",
+    "lakes",
+    "rivers",
+    "streams",
+    "roads",
 ]
 SpatialRelationKind = Literal[
     "no_intersection",
@@ -29,7 +29,7 @@ COUNTRY_CODE_PATTERN = re.compile(r"^[A-Za-z]{2}$")
 
 
 def _default_osm_blocks() -> list[OsmBlockName]:
-    return ["buildings", "transport", "landuse", "infrastructure", "poi"]
+    return ["forests", "lakes", "rivers", "streams", "roads"]
 
 
 class ToolError(BaseModel):
@@ -188,7 +188,7 @@ class AnalyzeAreaInput(BaseModel):
         default_factory=_default_osm_blocks,
         min_length=1,
         description=(
-            "OSM blocks: buildings, transport, landuse, infrastructure, or poi"
+            "OSM blocks: forests, lakes, rivers, streams, or roads"
         ),
     )
     limit_per_block: int = Field(default=50, ge=1, le=100)

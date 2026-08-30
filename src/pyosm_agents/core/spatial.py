@@ -178,6 +178,8 @@ def _is_area(tags: dict[str, str], coordinates: Sequence[tuple[float, float]]) -
         return False
     if tags.get("area") == "yes":
         return True
+    if tags.get("waterway") == "riverbank":
+        return True
     if any(key in tags for key in AREA_TAG_KEYS):
         return True
     natural = tags.get("natural")

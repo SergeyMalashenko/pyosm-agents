@@ -76,10 +76,10 @@ def test_polygon_search_reuses_safe_tag_validation() -> None:
 def test_area_input_deduplicates_blocks_and_defaults_to_one_kilometre() -> None:
     value = AnalyzeAreaInput(
         geometry={"type": "Polygon", "coordinates": []},
-        blocks=["buildings", "buildings", "poi"],
+        blocks=["forests", "forests", "roads"],
     )
 
-    assert value.blocks == ["buildings", "poi"]
+    assert value.blocks == ["forests", "roads"]
     assert value.source_crs == "EPSG:4326"
     assert value.margin_m == 1000
 

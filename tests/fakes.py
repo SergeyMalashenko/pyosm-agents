@@ -117,6 +117,67 @@ class FakeOsmClient:
                     {"lat": 56.3350, "lon": 44.0300},
                 ],
             },
+            {
+                "type": "way",
+                "id": 406,
+                "tags": {
+                    "natural": "wood",
+                    "name": "Лесной массив",
+                    "leaf_type": "mixed",
+                },
+                "geometry": [
+                    {"lat": 56.3270, "lon": 44.0090},
+                    {"lat": 56.3270, "lon": 44.0110},
+                    {"lat": 56.3290, "lon": 44.0110},
+                    {"lat": 56.3290, "lon": 44.0090},
+                    {"lat": 56.3270, "lon": 44.0090},
+                ],
+            },
+            {
+                "type": "way",
+                "id": 407,
+                "tags": {
+                    "natural": "water",
+                    "water": "lake",
+                    "name": "Тестовое озеро",
+                },
+                "geometry": [
+                    {"lat": 56.3270, "lon": 43.9940},
+                    {"lat": 56.3270, "lon": 43.9960},
+                    {"lat": 56.3290, "lon": 43.9960},
+                    {"lat": 56.3290, "lon": 43.9940},
+                    {"lat": 56.3270, "lon": 43.9940},
+                ],
+            },
+            {
+                "type": "way",
+                "id": 408,
+                "tags": {
+                    "natural": "water",
+                    "water": "river",
+                    "name": "Тестовая река",
+                },
+                "geometry": [
+                    {"lat": 56.3260, "lon": 44.0060},
+                    {"lat": 56.3260, "lon": 44.0070},
+                    {"lat": 56.3340, "lon": 44.0070},
+                    {"lat": 56.3340, "lon": 44.0060},
+                    {"lat": 56.3260, "lon": 44.0060},
+                ],
+            },
+            {
+                "type": "way",
+                "id": 409,
+                "tags": {
+                    "waterway": "stream",
+                    "name": "Тестовый ручей",
+                    "intermittent": "yes",
+                },
+                "geometry": [
+                    {"lat": 56.3250, "lon": 43.9970},
+                    {"lat": 56.3330, "lon": 43.9990},
+                ],
+            },
         ]
 
     async def geocode(

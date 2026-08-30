@@ -13,7 +13,7 @@ numbers itself.
 | `osm_reverse_geocode` | Describe a place or address at WGS84 coordinates | Nominatim |
 | `osm_search_nearby` | Find objects near coordinates by exact OSM tags | Overpass API |
 | `osm_search_in_polygon` | Find tagged objects intersecting an exact GeoJSON contour | Overpass API |
-| `osm_analyze_area` | Collect thematic infrastructure in an expanded circle around a GeoJSON contour | Overpass API |
+| `osm_analyze_area` | Collect forests, lakes, rivers, streams, and roads in an expanded circle | Overpass API |
 
 Arbitrary Overpass QL is not accepted. The server generates bounded queries and
 preserves the required OpenStreetMap attribution.
@@ -34,13 +34,18 @@ preserves the required OpenStreetMap attribution.
 
 The five blocks are:
 
-| Block | Representative OSM tag keys |
-|---|---|
-| `buildings` | `building`, `building:part` |
-| `transport` | `highway`, `railway`, `public_transport`, `aeroway`, `waterway` |
-| `landuse` | `landuse`, `natural`, `leisure` |
-| `infrastructure` | `power`, `man_made`, `utility`, `telecom`, `pipeline` |
-| `poi` | `amenity`, `shop`, `tourism`, `office`, `craft`, `healthcare`, `emergency` |
+| Block | Exact OSM classification | Geometry |
+|---|---|---|
+| `forests` | `natural=wood` or `landuse=forest` | Polygon/MultiPolygon contour |
+| `lakes` | `natural=water` and `water=lake` | Polygon/MultiPolygon contour |
+| `rivers` | `natural=water` and `water=river`, or `waterway=riverbank` | Polygon/MultiPolygon contour |
+| `streams` | `waterway=stream` | LineString/MultiLineString |
+| `roads` | selected drivable and service `highway` values | LineString/MultiLineString |
+
+Forest, lake, and river GeoJSON is always included, even when
+`include_geometry=false`. Multipolygon interior rings are preserved, so islands,
+clearings, and other holes remain part of the contour semantics. Streams and roads
+are returned as linear geometry when `include_geometry=true`.
 
 The result includes:
 
@@ -86,11 +91,11 @@ async def main() -> None:
             PARCEL,
             margin_m=1000,
             blocks=[
-                "buildings",
-                "transport",
-                "landuse",
-                "infrastructure",
-                "poi",
+                "forests",
+                "lakes",
+                "rivers",
+                "streams",
+                "roads",
             ],
             limit_per_block=100,
             include_geometry=True,
@@ -135,7 +140,7 @@ npx -y @modelcontextprotocol/inspector \
     },
     "source_crs": "EPSG:4326",
     "margin_m": 1000,
-    "blocks": ["buildings","transport","landuse","infrastructure","poi"],
+    "blocks": ["forests","lakes","rivers","streams","roads"],
     "limit_per_block": 100,
     "include_geometry": true
   }'

@@ -7,7 +7,13 @@ from typing import Any
 
 from typing_extensions import Self
 
-from .blocks import OSM_BLOCK_TAG_KEYS, blocks_for_tags, tag_filters_for_blocks
+from .blocks import (
+    AREAL_OSM_BLOCKS,
+    OSM_BLOCK_TAG_KEYS,
+    block_accepts_geometry,
+    blocks_for_tags,
+    tag_filters_for_blocks,
+)
 from .client import OsmClient, OsmHttpClient
 from .errors import exception_to_tool_error
 from .schemas import (
@@ -274,7 +280,11 @@ def _normalize_area_feature(
     if not analyzer.intersects_search_area(geometry):
         return None
     tags = _normalize_tags(item)
-    blocks = blocks_for_tags(tags, selected_blocks)
+    blocks = [
+        block
+        for block in blocks_for_tags(tags, selected_blocks)
+        if block_accepts_geometry(block, geometry.geom_type)
+    ]
     if not blocks:
         return None
     center = geometry.representative_point()
@@ -291,7 +301,12 @@ def _normalize_area_feature(
         distance_to_parcel_m=analyzer.distance_to_parcel_m(geometry),
         tags=tags,
         osm_url=f"https://www.openstreetmap.org/{element_type}/{osm_id}",
-        geojson=geometry_to_geojson(geometry) if include_geometry else None,
+        geojson=(
+            geometry_to_geojson(geometry)
+            if include_geometry
+            or any(block in AREAL_OSM_BLOCKS for block in blocks)
+            else None
+        ),
     )
 
 
@@ -519,11 +534,11 @@ class OsmTools:
         """Analyze thematic OSM blocks in a circle around an input contour."""
 
         selected_blocks: list[OsmBlockName] = blocks or [
-            "buildings",
-            "transport",
-            "landuse",
-            "infrastructure",
-            "poi",
+            "forests",
+            "lakes",
+            "rivers",
+            "streams",
+            "roads",
         ]
         try:
             if source_crs != "EPSG:4326":

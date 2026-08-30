@@ -109,3 +109,41 @@ def test_overpass_way_is_decoded_as_polygon_or_line() -> None:
 
     assert building is not None and building.geom_type == "Polygon"
     assert road is not None and road.geom_type == "LineString"
+
+
+def test_overpass_multipolygon_preserves_inner_contours() -> None:
+    geometry = overpass_geometry(
+        {
+            "type": "relation",
+            "tags": {"type": "multipolygon", "landuse": "forest"},
+            "members": [
+                {
+                    "type": "way",
+                    "role": "outer",
+                    "geometry": [
+                        {"lon": 0, "lat": 0},
+                        {"lon": 4, "lat": 0},
+                        {"lon": 4, "lat": 4},
+                        {"lon": 0, "lat": 4},
+                        {"lon": 0, "lat": 0},
+                    ],
+                },
+                {
+                    "type": "way",
+                    "role": "inner",
+                    "geometry": [
+                        {"lon": 1, "lat": 1},
+                        {"lon": 2, "lat": 1},
+                        {"lon": 2, "lat": 2},
+                        {"lon": 1, "lat": 2},
+                        {"lon": 1, "lat": 1},
+                    ],
+                },
+            ],
+        }
+    )
+
+    assert geometry is not None
+    assert geometry.geom_type == "Polygon"
+    assert len(geometry.interiors) == 1
+    assert not geometry.covers(Point(1.5, 1.5))

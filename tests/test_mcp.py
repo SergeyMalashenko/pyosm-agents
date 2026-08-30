@@ -66,7 +66,7 @@ async def test_mcp_area_tool_accepts_caller_provided_contour(
 
     result = await server.tools["osm_analyze_area"](
         PARCEL_GEOMETRY,
-        blocks=["buildings", "transport", "poi"],
+        blocks=["forests", "lakes", "rivers", "streams", "roads"],
     )
 
     assert result.ok
@@ -139,7 +139,7 @@ async def test_real_stateless_http_call_survives_initialize_request() -> None:
                         "geometry": PARCEL_GEOMETRY,
                         "source_crs": "EPSG:4326",
                         "margin_m": 1000,
-                        "blocks": ["buildings", "transport"],
+                        "blocks": ["forests", "lakes", "rivers", "roads"],
                         "limit_per_block": 5,
                         "include_geometry": False,
                     },

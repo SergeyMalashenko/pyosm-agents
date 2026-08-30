@@ -105,30 +105,46 @@ async def test_area_analysis_expands_circle_and_groups_nearby_features() -> None
     result = await tools.analyze_area(
         PARCEL_GEOMETRY,
         margin_m=1000,
-        blocks=["buildings", "transport", "poi"],
+        blocks=["forests", "lakes", "rivers", "streams", "roads"],
         limit_per_block=10,
-        include_geometry=True,
+        include_geometry=False,
     )
 
     assert result.ok
     assert result.data is not None
     counts = {block.block: block.returned_count for block in result.data.blocks}
-    assert counts == {"buildings": 2, "transport": 2, "poi": 1}
+    assert counts == {
+        "forests": 1,
+        "lakes": 1,
+        "rivers": 1,
+        "streams": 1,
+        "roads": 2,
+    }
     assert result.data.search_area.margin_m == 1000
     assert result.data.search_area.search_radius_m == (
         result.data.search_area.parcel_minimum_radius_m + 1000
     )
     assert result.data.search_area.geojson["type"] == "Polygon"
-    nearby = next(
+    forest = next(
         feature
         for block in result.data.blocks
         for feature in block.features
-        if feature.osm_id == 403
+        if feature.osm_id == 406
     )
-    assert nearby.relation.kind == "no_intersection"
-    assert nearby.search_relation == "inside_search_area"
-    assert nearby.distance_to_parcel_m is not None
-    assert nearby.distance_to_parcel_m > 0
+    assert forest.geometry_type == "Polygon"
+    assert forest.geojson is not None
+    assert forest.relation.kind == "no_intersection"
+    assert forest.search_relation == "inside_search_area"
+    assert forest.distance_to_parcel_m is not None
+    stream = next(
+        feature
+        for block in result.data.blocks
+        for feature in block.features
+        if feature.osm_id == 409
+    )
+    assert stream.geometry_type == "LineString"
+    assert stream.geojson is None
+    assert forest.distance_to_parcel_m > 0
     crossing = next(
         feature
         for block in result.data.blocks
