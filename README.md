@@ -13,7 +13,7 @@ numbers itself.
 | `osm_reverse_geocode` | Describe a place or address at WGS84 coordinates | Nominatim |
 | `osm_search_nearby` | Find objects near coordinates by exact OSM tags | Overpass API |
 | `osm_search_in_polygon` | Find tagged objects intersecting an exact GeoJSON contour | Overpass API |
-| `osm_analyze_area` | Collect forests, lakes, rivers, streams, and roads in an expanded circle | Overpass API |
+| `osm_analyze_area` | Collect forests, waterbodies, rivers, streams, and roads in an expanded circle | Overpass API |
 
 Arbitrary Overpass QL is not accepted. The server generates bounded queries and
 preserves the required OpenStreetMap attribution.
@@ -37,15 +37,21 @@ The five blocks are:
 | Block | Exact OSM classification | Geometry |
 |---|---|---|
 | `forests` | `natural=wood` or `landuse=forest` | Polygon/MultiPolygon contour |
-| `lakes` | `natural=water` and `water=lake` | Polygon/MultiPolygon contour |
+| `lakes` | `natural=water` with no `water` subtype, or a standing-water subtype (`lake`, `pond`, `reservoir`, `basin`, `lagoon`, `oxbow`) | Polygon/MultiPolygon contour |
 | `rivers` | `natural=water` and `water=river`, or `waterway=riverbank` | Polygon/MultiPolygon contour |
 | `streams` | `waterway=stream` | LineString/MultiLineString |
 | `roads` | selected drivable and service `highway` values | LineString/MultiLineString |
 
-Forest, lake, and river GeoJSON is always included, even when
+Forest, waterbody, and river GeoJSON is always included, even when
 `include_geometry=false`. Multipolygon interior rings are preserved, so islands,
 clearings, and other holes remain part of the contour semantics. Streams and roads
 are returned as linear geometry when `include_geometry=true`.
+
+The public block name remains `lakes` for contract stability, but the block is
+semantically a standing/unspecified waterbody collection. This includes valid
+OSM objects that use `natural=water` without the optional `water=*` refinement,
+such as flooded quarries. Areas tagged `water=river` remain exclusive to the
+`rivers` block; canal water areas are not included in either block.
 
 The result includes:
 

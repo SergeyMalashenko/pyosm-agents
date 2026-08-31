@@ -178,6 +178,21 @@ class FakeOsmClient:
                     {"lat": 56.3330, "lon": 43.9990},
                 ],
             },
+            {
+                "type": "way",
+                "id": 410,
+                "tags": {
+                    "natural": "water",
+                    "name": "Дракинский карьер",
+                },
+                "geometry": [
+                    {"lat": 56.3270, "lon": 44.0040},
+                    {"lat": 56.3270, "lon": 44.0050},
+                    {"lat": 56.3290, "lon": 44.0050},
+                    {"lat": 56.3290, "lon": 44.0040},
+                    {"lat": 56.3270, "lon": 44.0040},
+                ],
+            },
         ]
 
     async def geocode(

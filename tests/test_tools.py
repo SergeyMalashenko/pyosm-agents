@@ -115,7 +115,7 @@ async def test_area_analysis_expands_circle_and_groups_nearby_features() -> None
     counts = {block.block: block.returned_count for block in result.data.blocks}
     assert counts == {
         "forests": 1,
-        "lakes": 1,
+        "lakes": 2,
         "rivers": 1,
         "streams": 1,
         "roads": 2,
@@ -145,6 +145,15 @@ async def test_area_analysis_expands_circle_and_groups_nearby_features() -> None
     assert stream.geometry_type == "LineString"
     assert stream.geojson is None
     assert forest.distance_to_parcel_m > 0
+    untyped_waterbody = next(
+        feature
+        for block in result.data.blocks
+        for feature in block.features
+        if feature.osm_id == 410
+    )
+    assert untyped_waterbody.name == "Дракинский карьер"
+    assert untyped_waterbody.geometry_type == "Polygon"
+    assert untyped_waterbody.geojson is not None
     crossing = next(
         feature
         for block in result.data.blocks

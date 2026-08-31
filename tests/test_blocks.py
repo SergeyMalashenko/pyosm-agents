@@ -13,7 +13,7 @@ def test_exact_block_filters_are_generated_without_broad_highway_query() -> None
     )
 
     assert {"natural": "wood"} in filters
-    assert {"natural": "water", "water": "lake"} in filters
+    assert {"natural": "water"} in filters
     assert {"natural": "water", "water": "river"} in filters
     assert {"waterway": "stream"} in filters
     assert {"highway": "secondary"} in filters
@@ -28,6 +28,15 @@ def test_semantic_blocks_reject_unrelated_highway_points() -> None:
     assert blocks_for_tags(
         {"natural": "water", "water": "river"}, selected
     ) == ["rivers"]
+    assert blocks_for_tags(
+        {"natural": "water", "name": "Дракинский карьер"}, selected
+    ) == ["lakes"]
+    assert blocks_for_tags(
+        {"natural": "water", "water": "reservoir"}, selected
+    ) == ["lakes"]
+    assert blocks_for_tags(
+        {"natural": "water", "water": "canal"}, selected
+    ) == []
     assert block_accepts_geometry("rivers", "Polygon")
     assert not block_accepts_geometry("rivers", "LineString")
     assert block_accepts_geometry("streams", "LineString")

@@ -188,7 +188,8 @@ class AnalyzeAreaInput(BaseModel):
         default_factory=_default_osm_blocks,
         min_length=1,
         description=(
-            "OSM blocks: forests, lakes, rivers, streams, or roads"
+            "OSM blocks: forests, lakes (standing/untyped waterbodies), "
+            "rivers, streams, or roads"
         ),
     )
     limit_per_block: int = Field(default=50, ge=1, le=100)
