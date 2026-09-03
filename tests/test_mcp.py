@@ -10,7 +10,7 @@ import pytest
 from pyosm_agents.core import OsmTools
 from pyosm_agents.mcp import _build_parser, _run_server, create_mcp_server
 
-from .fakes import FakeOsmClient, PARCEL_GEOMETRY
+from .fakes import PARCEL_GEOMETRY, FakeOsmClient
 
 
 class FakeFastMCP:

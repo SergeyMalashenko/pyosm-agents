@@ -1,6 +1,6 @@
 from pyosm_agents.core import OsmTools
 
-from .fakes import FakeOsmClient, PARCEL_GEOMETRY
+from .fakes import PARCEL_GEOMETRY, FakeOsmClient
 
 
 async def test_geocode_normalizes_result_and_attribution() -> None:

@@ -1,6 +1,6 @@
 from pyosm_agents.core import OsmTools, create_default_registry
 
-from .fakes import FakeOsmClient, PARCEL_GEOMETRY
+from .fakes import PARCEL_GEOMETRY, FakeOsmClient
 
 
 def test_registry_contains_public_tools() -> None:
