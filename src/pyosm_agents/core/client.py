@@ -136,7 +136,7 @@ class OsmHttpClient:
         contact_email: str | None = None,
         timeout_s: float = 30.0,
         nominatim_min_interval_s: float = 1.0,
-        overpass_max_attempts: int = 2,
+        overpass_max_attempts: int = 3,
         overpass_retry_delay_s: float = 1.0,
         cache_size: int = 512,
         http_client: httpx.AsyncClient | None = None,
