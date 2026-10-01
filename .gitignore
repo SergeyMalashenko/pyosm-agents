@@ -8,3 +8,11 @@ __pycache__/
 .venv/
 build/
 dist/
+
+# Локальные секреты и окружение
+.env
+.env.*
+!.env.example
+
+# Локфайл окружения разработчика
+uv.lock
