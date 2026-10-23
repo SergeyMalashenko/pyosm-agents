@@ -37,6 +37,32 @@ def test_polygon_query_uses_bbox_candidates_and_or_filters() -> None:
     assert "out geom qt 100;" in query
 
 
+def test_overpass_queries_accept_custom_ql_timeout() -> None:
+    query = build_overpass_query(
+        56.0, 44.0, radius_m=100, tags={}, limit=5, timeout_s=90
+    )
+    assert "[out:json][timeout:90]" in query
+
+    bbox_query = build_overpass_bbox_query(
+        (44.0, 56.0, 44.1, 56.1),
+        tag_filters=[{"highway": "bus_stop"}],
+        limit=5,
+        timeout_s=120,
+    )
+    assert "[out:json][timeout:120]" in bbox_query
+
+
+def test_client_timeout_scales_ql_budget(monkeypatch) -> None:
+    monkeypatch.setenv("PYOSM_TIMEOUT_S", "120")
+    client = OsmHttpClient()
+    assert client._timeout_s == 120.0
+    # бюджет QL оставляет запас клиенту и ограничен сверху
+    assert client._overpass_ql_timeout_s() == 105
+
+    monkeypatch.setenv("PYOSM_TIMEOUT_S", "500")
+    assert OsmHttpClient()._overpass_ql_timeout_s() == 240
+
+
 async def test_nominatim_response_is_cached() -> None:
     request_count = 0
 

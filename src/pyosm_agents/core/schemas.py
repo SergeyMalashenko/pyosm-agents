@@ -15,6 +15,7 @@ OsmBlockName = Literal[
     "rivers",
     "streams",
     "roads",
+    "transport",
 ]
 SpatialRelationKind = Literal[
     "no_intersection",

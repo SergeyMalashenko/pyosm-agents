@@ -40,3 +40,28 @@ def test_semantic_blocks_reject_unrelated_highway_points() -> None:
     assert block_accepts_geometry("rivers", "Polygon")
     assert not block_accepts_geometry("rivers", "LineString")
     assert block_accepts_geometry("streams", "LineString")
+
+
+def test_transport_block_filters_and_classification() -> None:
+    filters = tag_filters_for_blocks(["transport"])
+
+    assert {"highway": "bus_stop"} in filters
+    assert {"public_transport": "platform"} in filters
+    assert {"public_transport": "station"} in filters
+    assert {"railway": "station"} in filters
+    assert {"railway": "halt"} in filters
+
+    assert blocks_for_tags({"highway": "bus_stop"}, ["transport"]) == ["transport"]
+    assert blocks_for_tags(
+        {"highway": "bus_stop", "public_transport": "platform"}, ["transport"]
+    ) == ["transport"]
+    assert blocks_for_tags({"railway": "halt"}, ["transport"]) == ["transport"]
+    assert blocks_for_tags({"railway": "level_crossing"}, ["transport"]) == []
+    assert blocks_for_tags({"highway": "secondary"}, ["transport"]) == []
+
+
+def test_transport_block_accepts_points_and_platform_contours() -> None:
+    assert block_accepts_geometry("transport", "Point")
+    assert block_accepts_geometry("transport", "Polygon")
+    assert block_accepts_geometry("transport", "MultiPolygon")
+    assert not block_accepts_geometry("transport", "LineString")

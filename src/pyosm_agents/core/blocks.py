@@ -10,6 +10,7 @@ AREAL_OSM_BLOCKS: frozenset[OsmBlockName] = frozenset(
     {"forests", "lakes", "rivers"}
 )
 LINEAR_OSM_BLOCKS: frozenset[OsmBlockName] = frozenset({"streams", "roads"})
+POINT_OSM_BLOCKS: frozenset[OsmBlockName] = frozenset({"transport"})
 
 ROAD_HIGHWAY_VALUES = frozenset(
     {
@@ -55,6 +56,13 @@ OSM_BLOCK_FILTERS: dict[OsmBlockName, tuple[dict[str, str], ...]] = {
     "roads": tuple(
         {"highway": value} for value in sorted(ROAD_HIGHWAY_VALUES)
     ),
+    "transport": (
+        {"highway": "bus_stop"},
+        {"public_transport": "platform"},
+        {"public_transport": "station"},
+        {"railway": "station"},
+        {"railway": "halt"},
+    ),
 }
 
 # These expressions explain the active query in every block response.
@@ -65,6 +73,13 @@ OSM_BLOCK_TAG_KEYS: dict[OsmBlockName, tuple[str, ...]] = {
     "streams": ("waterway=stream",),
     "roads": tuple(
         f"highway={value}" for value in sorted(ROAD_HIGHWAY_VALUES)
+    ),
+    "transport": (
+        "highway=bus_stop",
+        "public_transport=platform",
+        "public_transport=station",
+        "railway=station",
+        "railway=halt",
     ),
 }
 
@@ -110,10 +125,13 @@ def blocks_for_tags(
 
 
 def block_accepts_geometry(block: OsmBlockName, geometry_type: str) -> bool:
-    """Enforce contours for natural areas and lines for roads and streams."""
+    """Enforce contours for natural areas, lines for roads/streams, points for stops."""
 
     if block in AREAL_OSM_BLOCKS:
         return geometry_type in {"Polygon", "MultiPolygon"}
     if block in LINEAR_OSM_BLOCKS:
         return geometry_type in {"LineString", "MultiLineString"}
+    if block in POINT_OSM_BLOCKS:
+        # Остановки и станции мапятся точками; платформы встречаются и контурами.
+        return geometry_type in {"Point", "Polygon", "MultiPolygon"}
     return False

@@ -75,6 +75,7 @@ def build_overpass_query(
     radius_m: int,
     tags: Mapping[str, str | None],
     limit: int,
+    timeout_s: int = 25,
 ) -> str:
     """Build a bounded Overpass QL query without accepting arbitrary QL."""
 
@@ -89,7 +90,7 @@ def build_overpass_query(
         f"  {element_type}{around}{filters};"
         for element_type in ("node", "way", "relation")
     )
-    return f"[out:json][timeout:25];\n(\n{selectors}\n);\nout tags center qt {limit};"
+    return f"[out:json][timeout:{timeout_s}];\n(\n{selectors}\n);\nout tags center qt {limit};"
 
 
 def build_overpass_bbox_query(
@@ -97,6 +98,7 @@ def build_overpass_bbox_query(
     *,
     tag_filters: Sequence[Mapping[str, str | None]],
     limit: int,
+    timeout_s: int = 30,
 ) -> str:
     """Build a fast bbox candidate query for subsequent exact local filtering."""
 
@@ -116,7 +118,7 @@ def build_overpass_bbox_query(
         )
         selectors.append(f"  nwr({bbox}){filters};")
     joined = "\n".join(selectors)
-    return f"[out:json][timeout:30];\n(\n{joined}\n);\nout geom qt {limit};"
+    return f"[out:json][timeout:{timeout_s}];\n(\n{joined}\n);\nout geom qt {limit};"
 
 
 class OsmHttpClient:
@@ -134,13 +136,15 @@ class OsmHttpClient:
         overpass_url: str | None = None,
         user_agent: str | None = None,
         contact_email: str | None = None,
-        timeout_s: float = 30.0,
+        timeout_s: float | None = None,
         nominatim_min_interval_s: float = 1.0,
         overpass_max_attempts: int = 3,
         overpass_retry_delay_s: float = 1.0,
         cache_size: int = 512,
         http_client: httpx.AsyncClient | None = None,
     ) -> None:
+        if timeout_s is None:
+            timeout_s = float(os.getenv("PYOSM_TIMEOUT_S", "60"))
         if timeout_s <= 0:
             raise ValueError("timeout_s must be positive")
         if nominatim_min_interval_s < 0:
@@ -167,6 +171,7 @@ class OsmHttpClient:
             "User-Agent": self.user_agent,
         }
         self._http = http_client or httpx.AsyncClient(timeout=timeout_s)
+        self._timeout_s = timeout_s
         self._owns_http_client = http_client is None
         self._nominatim_lock = asyncio.Lock()
         self._last_nominatim_request = -math.inf
@@ -253,6 +258,11 @@ class OsmHttpClient:
             )
         return payload
 
+    def _overpass_ql_timeout_s(self) -> int:
+        """Server-side QL budget: клиентский таймаут должен пережить его."""
+
+        return min(max(int(self._timeout_s) - 15, 25), 240)
+
     async def search_nearby(
         self,
         latitude: float,
@@ -268,6 +278,7 @@ class OsmHttpClient:
             radius_m=radius_m,
             tags=tags,
             limit=limit,
+            timeout_s=self._overpass_ql_timeout_s(),
         )
         return await self._overpass_post(query)
 
@@ -282,6 +293,7 @@ class OsmHttpClient:
             bounds,
             tag_filters=tag_filters,
             limit=limit,
+            timeout_s=self._overpass_ql_timeout_s(),
         )
         return await self._overpass_post(query)
 

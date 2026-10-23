@@ -208,7 +208,7 @@ def create_mcp_server(
         limit_per_block: int = 50,
         include_geometry: bool = False,
     ) -> ToolResult[AreaOsmAnalysisData]:
-        """Analyze forests, waterbodies, rivers, streams, and roads around a contour.
+        """Analyze forests, waterbodies, rivers, streams, roads, and public transport.
 
         Args:
             geometry: WGS84 GeoJSON Polygon or MultiPolygon.
@@ -216,10 +216,11 @@ def create_mcp_server(
                 ``EPSG:4326`` is accepted.
             margin_m: Metres added to the contour's minimum enclosing radius.
             blocks: Any of ``forests``, ``lakes``, ``rivers``, ``streams``,
-                and ``roads``. ``lakes`` includes standing and untyped
-                ``natural=water`` areas such as ponds, reservoirs, and flooded
-                quarries. Forest, waterbody, and river contours are always
-                included in the response.
+                ``roads``, and ``transport``. ``lakes`` includes standing and
+                untyped ``natural=water`` areas such as ponds, reservoirs, and
+                flooded quarries. ``transport`` covers public-transport stops,
+                platforms, and railway stations/halts. Forest, waterbody, and
+                river contours are always included in the response.
             limit_per_block: Maximum returned objects per block, from 1 to 100.
             include_geometry: Include matched OSM GeoJSON geometries. Keep false
                 for compact LLM responses.
